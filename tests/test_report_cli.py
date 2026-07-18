@@ -68,6 +68,9 @@ def test_rendered_units_and_labels(tmp_path) -> None:
     assert "LoD (ppm TF)" in html
     assert "log₁₀ TF LoD" not in html
     assert "'per-site VAF'" not in html
+    # Strand recovery is now an exposed control coupled to the regime.
+    assert 'id="strand"' in html
+    assert "regime_strand" in html
 
 
 def test_payload_mc_settings_and_extras(tmp_path) -> None:
@@ -75,17 +78,24 @@ def test_payload_mc_settings_and_extras(tmp_path) -> None:
     sc = load_scenario(CONFIGS / "default.toml")
     presets = [load_scenario(CONFIGS / f"{n}.toml") for n in ("conservative", "default", "optimistic")]
     payload = build_payload(sc, presets=presets)
-    # mc_settings records the generation alpha so the JS can hide a mismatched overlay.
+    # mc_settings records the operating alpha (= 1 - target specificity) so the
+    # overlay lines up with the analytic curve on load and hides on mismatch.
     mcs = payload["mc_settings"]
-    assert mcs["alpha"] == pytest.approx(payload["current"]["alpha"])
+    assert mcs["alpha"] == pytest.approx(1.0 - sc.target_specificity)
     assert mcs["n_variants"] == sc.config.panel.n_variants
     assert mcs["rule"] == "aggregate"
     # presets carry every slider field.
     assert [p["name"] for p in payload["presets"]] == ["conservative", "default", "optimistic"]
     assert all({"input_ng", "conv", "n", "eps", "spec", "rule", "targetTF"} <= set(p) for p in payload["presets"])
-    # power estimate is present with a replicate grid.
-    assert payload["power"] is not None
-    assert len(payload["power"]["grid"]) >= 3
+    # power estimate is present as RELATIVE half-widths (so the panel can scale
+    # live with the current LoD) plus a target fraction.
+    pw = payload["power"]
+    assert pw is not None
+    assert len(pw["grid"]) >= 3
+    assert "target_rel" in pw and 0 < pw["target_rel"] < 1
+    assert all(("rel" in g) for g in pw["grid"])
+    # regime -> strand coupling is exposed to the page.
+    assert payload["regime_strand"]["DUPLEX"] < payload["regime_strand"]["SSCS"]
 
 
 def test_cli_simulate(tmp_path) -> None:

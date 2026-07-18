@@ -133,6 +133,12 @@
       <input type="range" id="epslog" min="-8" max="-2" step="0.05">
     </div>
     <div class="ctrl">
+      <label>Strand recovery <span class="val"><span id="strandV"></span>×</span></label>
+      <input type="range" id="strand" min="0.3" max="1" step="0.05">
+      <div class="sub" style="margin-top:4px">Duplex needs both strands → ~0.5× the usable
+        molecules; single-strand consensus keeps 1.0×. Set automatically by the regime, overridable here.</div>
+    </div>
+    <div class="ctrl">
       <label>Target specificity</label>
       <select id="spec">
         <option value="0.95">95%</option>
@@ -151,7 +157,7 @@
     </div>
     <div class="ctrl">
       <label>Target LoD <span class="val">% TF</span></label>
-      <input type="number" id="target" min="0" step="0.0001" lang="en-US" inputmode="decimal">
+      <input type="text" id="target" lang="en-US" inputmode="decimal" autocomplete="off">
       <div class="sub" id="targetVafNote" style="margin-top:5px"></div>
     </div>
   </div>
@@ -351,7 +357,15 @@ const fmtPct=v=>{ // fraction -> "x ppm TF" or "%" sensibly
   if(ppm<1000) return ppm.toPrecision(3)+' ppm TF';
   return (v*100).toPrecision(3)+'% TF';
 };
-const fmtNum=v=> v>=100?Math.round(v).toLocaleString(): v>=1?v.toPrecision(3): v.toExponential(2);
+// Plain decimals over the whole display range a wet-lab reader parses at a
+// glance (0.18, not 1.82e-1); exponential only for the genuinely tiny.
+const fmtNum=v=>{
+  if(v===0) return '0';
+  if(v>=100) return Math.round(v).toLocaleString('en-US');
+  if(v>=1) return String(+v.toPrecision(3));
+  if(v>=0.001) return String(+v.toPrecision(2));
+  return v.toExponential(2);
+};
 
 // settings object for the model (VAF space). alpha = 1 - specificity.
 function modelSettings(){
@@ -411,6 +425,7 @@ function render(){
   drawSurface(s,hit);
   drawInterp(s,lodTF,pass,mut,bg);
   drawWwit(s,targetVaf,hit,pass);
+  renderPower(lodTF*1e6);
   stateToHash();
 }
 
@@ -585,34 +600,38 @@ function applyPreset(p){
 function markCustom(){ const s=$('preset'); if(s) s.value=''; }
 
 // ---- experimental-design (power) panel (P3.1) --------------------------
-function renderPower(){
+// Live: the 95% CI half-width on a probit LoD estimate scales ~1/sqrt(n) and
+// ~linearly with the LoD, so we scale the bootstrapped RELATIVE half-widths by
+// the current LoD. The panel then always agrees with the hero above it.
+function renderPower(lodPpm){
   const pw=PAYLOAD.power, panel=$('powerPanel');
-  if(!pw){ panel.style.display='none'; return; }
+  if(!pw || !isFinite(lodPpm)){ panel.style.display='none'; return; }
   panel.style.display='block';
-  const req=pw.required_replicates;
+  const tr=pw.target_rel;
+  const req=(pw.grid.find(g=>g.rel!=null && g.rel<=tr)||{}).n;
   const rows=pw.grid.map(g=>
     `<tr><td style="text-align:right;padding:2px 14px">${g.n}</td>`+
-    `<td style="padding:2px 14px">${g.ci_ppm==null?'—':'±'+(g.ci_ppm/2).toPrecision(2)+' ppm TF'}</td></tr>`).join('');
+    `<td style="padding:2px 14px">${g.rel==null?'—':'±'+fmtNum(g.rel*lodPpm)+' ppm TF ('
+      +'±'+Math.round(g.rel*100)+'%)'}</td></tr>`).join('');
   const lead = req
-    ? `To pin this LoD (≈${pw.lod_ppm.toPrecision(2)} ppm TF) to a 95% confidence interval of about `+
-      `±${(pw.target_ci_ppm/2).toPrecision(2)} ppm TF, you need roughly <b>${req} replicates</b> per dilution level.`
-    : `A 95% CI of ±${(pw.target_ci_ppm/2).toPrecision(2)} ppm TF needs more than `+
-      `${pw.grid[pw.grid.length-1].n} replicates per level.`;
+    ? `To pin this LoD (≈${fmtNum(lodPpm)} ppm TF) to within ±${Math.round(tr*100)}% `+
+      `(±${fmtNum(tr*lodPpm)} ppm TF), you need about <b>${req} replicates</b> per dilution level.`
+    : `Reaching ±${Math.round(tr*100)}% of this LoD needs more than `+
+      `${pw.grid[pw.grid.length-1].n} replicates per dilution level.`;
   $('powerBody').innerHTML = lead +
     `<table style="margin-top:10px;border-collapse:collapse;font-size:13px">`+
     `<tr><th style="text-align:right;padding:2px 14px">replicates / level</th>`+
     `<th style="text-align:left;padding:2px 14px">LoD 95% CI half-width</th></tr>${rows}</table>`+
-    `<div class="sub" style="margin-top:8px">Computed at the generation settings `+
-    `(N=${PAYLOAD.mc_settings.n_variants}, ${PAYLOAD.mc_settings.regime_label}); it sizes the real `+
-    `dilution study, not the live sliders.</div>`;
+    `<div class="sub" style="margin-top:8px">Scales with the current LoD; replicate counts assume the `+
+    `detection-curve sharpness of the reference fit. Sizes the real dilution study.</div>`;
 }
 
 // ---- shareable URL state (P3.3) ----------------------------------------
 function stateToHash(){
   const p=new URLSearchParams();
   p.set('in',state.input_ng); p.set('cv',state.conv); p.set('n',state.n);
-  p.set('eps',state.eps); p.set('sp',state.spec); p.set('rl',state.rule);
-  p.set('tf',state.targetTF);
+  p.set('eps',state.eps); p.set('st',state.strand); p.set('sp',state.spec);
+  p.set('rl',state.rule); p.set('tf',state.targetTF);
   history.replaceState(null,'','#'+p.toString());
 }
 function hashToState(){
@@ -621,6 +640,7 @@ function hashToState(){
   const num=(k,d)=>p.has(k)?parseFloat(p.get(k)):d;
   state.input_ng=num('in',state.input_ng); state.conv=num('cv',state.conv);
   state.n=Math.round(num('n',state.n)); state.eps=num('eps',state.eps);
+  state.strand=num('st',state.strand);
   state.spec=num('sp',state.spec); state.rule=p.get('rl')||state.rule;
   state.targetTF=num('tf',state.targetTF); state.regime=regimeOf(state.eps);
   markCustom();  // a shared link is, by definition, a custom configuration
@@ -636,8 +656,11 @@ function syncInputs(){
   $('input_ng').value=state.input_ng; $('inV').textContent=state.input_ng;
   $('conv').value=state.conv*100; $('convV').textContent=Math.round(state.conv*100);
   $('nlog').value=Math.log10(state.n); $('nV').textContent=fmtNum(state.n);
+  $('strand').value=state.strand; $('strandV').textContent=(+state.strand.toFixed(2));
   $('spec').value=state.spec; $('rule').value=state.rule;
-  $('target').value=+(state.targetTF*100).toPrecision(4);
+  // type=text field: set a dot-decimal string so it never renders 0,001 under
+  // a comma-decimal browser locale.
+  $('target').value=String(+(state.targetTF*100).toPrecision(4));
   $('targetVafNote').textContent=`= ${fmtPct(state.targetTF)}  ·  VAF = ${fmtPct(tfToVaf(state.targetTF)).replace(' TF','')} `;
   $('epslog').value=Math.log10(state.eps); $('epsExpV').textContent=Math.log10(state.eps).toFixed(1);
   setRegimeButtons();
@@ -653,15 +676,22 @@ $('target').oninput=e=>{const v=parseNum(e.target.value); if(!isFinite(v)) retur
   state.targetTF=Math.max(0,v/100);
   $('targetVafNote').textContent=`= ${fmtPct(state.targetTF)}  ·  VAF = ${fmtPct(tfToVaf(state.targetTF)).replace(' TF','')} `;markCustom();schedule();};
 $('epslog').oninput=e=>{state.eps=Math.pow(10,+e.target.value);$('epsExpV').textContent=(+e.target.value).toFixed(1);markCustom();schedule();};
+$('strand').oninput=e=>{state.strand=+e.target.value;$('strandV').textContent=(+state.strand.toFixed(2));markCustom();schedule();};
 document.querySelectorAll('#regime button').forEach(b=>b.onclick=()=>{
   state.regime=b.dataset.r;
-  if(state.regime!=='CUSTOM') state.eps=PAYLOAD.regimes[state.regime];
+  if(state.regime!=='CUSTOM'){
+    state.eps=PAYLOAD.regimes[state.regime];
+    // Couple the strand-recovery penalty to the regime: duplex needs both
+    // strands, so ~half the molecules are lost (BUILD_SPEC 2.1). This is the
+    // whole "duplex trade-off" -- lower error, fewer molecules.
+    const rs=(PAYLOAD.regime_strand||{})[state.regime];
+    if(rs!=null) state.strand=rs;
+  }
   setRegimeButtons(); markCustom(); syncInputs(); schedule();
 });
 
 populatePresets();
 hashToState();
-renderPower();
 syncInputs(); render();
 </script>
 </body>

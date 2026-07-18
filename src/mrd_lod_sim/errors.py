@@ -31,8 +31,18 @@ __all__ = [
     "ContextualError",
     "EmpiricalError",
     "REGIME_RATES",
+    "REGIME_STRAND",
     "error_preset",
 ]
+
+#: Default strand-recovery penalty coupled to each consensus regime (BUILD_SPEC 2.1).
+#: Duplex consensus requires recovering BOTH strands of each original molecule, so
+#: every half-caught molecule is discarded -- roughly halving usable molecules. The
+#: single-strand regimes keep everything recovered. This is the "duplex trade-off":
+#: lower error *and* fewer molecules, so the net benefit depends on which limit you
+#: are in. Configurable; the dashboard uses these as defaults when the error regime
+#: is toggled, and exposes strand recovery as its own control.
+REGIME_STRAND: dict[str, float] = {"RAW": 1.0, "SSCS": 1.0, "DUPLEX": 0.5}
 
 
 class ErrorModel(ABC):

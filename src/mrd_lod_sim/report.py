@@ -21,7 +21,7 @@ import numpy as np
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from mrd_lod_sim.analytic import _aggregate_detection_probability, detection_probability
-from mrd_lod_sim.errors import REGIME_RATES
+from mrd_lod_sim.errors import REGIME_RATES, REGIME_STRAND
 from mrd_lod_sim.molecules import molecule_budget
 from mrd_lod_sim.params import tf_from_vaf
 from mrd_lod_sim.scenario import Scenario
@@ -76,14 +76,28 @@ def _golden_vectors(alpha: float) -> list[dict]:
     return rows
 
 
-def _mc_curve(scenario: Scenario, n_points: int = 12, n_replicates: int = 4000) -> list[dict]:
-    """A Monte-Carlo detection curve at the scenario's current settings."""
+def _ui_rule(rule, alpha_ui: float):
+    """The rule as the dashboard operates it: alpha is driven by the target-
+    specificity control (alpha = 1 - specificity), not the rule object's own
+    alpha. k-of-N ignores alpha, so it is returned unchanged.
+    """
+    from mrd_lod_sim.detect import AggregatePoissonRule, LikelihoodRatioRule
+
+    if isinstance(rule, AggregatePoissonRule):
+        return AggregatePoissonRule(alpha=alpha_ui)
+    if isinstance(rule, LikelihoodRatioRule):
+        return LikelihoodRatioRule(alpha=alpha_ui)
+    return rule
+
+
+def _mc_curve(scenario: Scenario, rule, n_points: int = 12, n_replicates: int = 4000) -> list[dict]:
+    """A Monte-Carlo detection curve at the dashboard's default operating point."""
     rng = np.random.default_rng(0)
     lod_guess = max(scenario.target_vaf, 1e-7)
     vafs = np.logspace(np.log10(lod_guess / 30), np.log10(lod_guess * 30), n_points)
     out = []
     for v in vafs:
-        rate = detection_rate(scenario.config, scenario.rule, float(v), n_replicates, rng)
+        rate = detection_rate(scenario.config, rule, float(v), n_replicates, rng)
         out.append({"vaf": float(v), "p": rate.detection_rate})
     return out
 
@@ -163,20 +177,23 @@ def _power_estimate(scenario: Scenario) -> dict | None:
         curve = fit_detection_curve(recs)
     except ValueError:
         return None
-    target_ci = lod * 0.5  # +/- 25% of the LoD estimate
+    target_rel = 0.25  # target CI half-width as a fraction of the LoD (+/-25%)
+    target_ci = lod * 2 * target_rel  # width = 2 * half-width = 2 * (rel * lod)
     grid = [50, 100, 200, 500, 1000, 2000]
     pr = power_analysis(
         curve, [lod * 0.5, lod, lod * 2], target_ci, grid,
         hit_rate=hit, n_bootstrap=200, rng=np.random.default_rng(0),
     )
+    # Emit the CI half-width RELATIVE to the LoD (dimensionless). The dashboard
+    # multiplies it by the *live* LoD so the panel always agrees with the hero
+    # (the half-width scales ~1/sqrt(n) and ~linearly with the LoD).
     return {
         "lod_ppm": tf_from_vaf(lod) * 1e6,
-        "target_ci_ppm": tf_from_vaf(target_ci) * 1e6,
-        "required_replicates": pr.required_replicates,
+        "target_rel": target_rel,
         "grid": [
             {
                 "n": n,
-                "ci_ppm": tf_from_vaf(w) * 1e6 if math.isfinite(w) else None,
+                "rel": (w / 2.0) / lod if math.isfinite(w) else None,
             }
             for n, w in sorted(pr.achieved_ci_width.items())
         ],
@@ -188,6 +205,11 @@ def build_payload(scenario: Scenario, presets: list[Scenario] | None = None) -> 
     cfg = scenario.config
     budget = molecule_budget(cfg.molecules)
     alpha = getattr(scenario.rule, "alpha", 0.05)
+    # The dashboard operates at alpha = 1 - target_specificity (the specificity
+    # control), so the MC overlay must be generated at that alpha to line up with
+    # the analytic curve on load.
+    alpha_ui = 1.0 - scenario.target_specificity
+    mc_rule = _ui_rule(scenario.rule, alpha_ui)
     rule_name = type(scenario.rule).__name__
 
     return {
@@ -216,9 +238,10 @@ def build_payload(scenario: Scenario, presets: list[Scenario] | None = None) -> 
             "hit_rate": scenario.hit_rate,
         },
         "regimes": REGIME_RATES,
+        "regime_strand": REGIME_STRAND,
         "golden": _golden_vectors(alpha),
-        "mc_curve": _mc_curve(scenario),
-        "mc_settings": _mc_settings(scenario, alpha),
+        "mc_curve": _mc_curve(scenario, mc_rule),
+        "mc_settings": _mc_settings(scenario, alpha_ui),
         "presets": _preset_states(presets) if presets else [],
         "power": _power_estimate(scenario),
     }

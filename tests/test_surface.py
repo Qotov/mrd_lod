@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from mrd_lod_sim.analytic import detection_probability
 from mrd_lod_sim.config import AssayConfig
 from mrd_lod_sim.detect import AggregatePoissonRule
 from mrd_lod_sim.errors import ConstantError
@@ -24,6 +25,34 @@ def cfg(**over) -> AssayConfig:
 
 
 RULE = AggregatePoissonRule(alpha=0.05)
+
+
+def test_duplex_strand_penalty_is_not_free() -> None:
+    """The duplex trade-off (BUILD_SPEC 2.1, test #7): duplex lowers epsilon AND
+    reduces usable molecules via strand_recovery, so the net benefit depends on
+    the regime. Guards the dashboard bug where duplex was modelled as a pure,
+    cost-free error reduction."""
+    panel = PanelModel(500, ccf_alpha=9.0, ccf_beta=1.0)
+    sscs = AssayConfig(MoleculeParams(30.0, 0.4, 1.0), panel, ConstantError(1e-5))
+    duplex_free = AssayConfig(MoleculeParams(30.0, 0.4, 1.0), panel, ConstantError(1e-7))
+    duplex = AssayConfig(MoleculeParams(30.0, 0.4, 0.5), panel, ConstantError(1e-7))
+
+    # The molecule cost is real: strand recovery 0.5 halves effective GE.
+    assert duplex.ge_eff() == pytest.approx(0.5 * sscs.ge_eff())
+
+    lod_free = achievable_lod(duplex_free, RULE, 0.95)
+    lod_duplex = achievable_lod(duplex, RULE, 0.95)
+    lod_sscs = achievable_lod(sscs, RULE, 0.95)
+
+    # Duplex is NOT free: the strand penalty worsens (raises) the LoD vs the
+    # physically wrong cost-free duplex -- here it roughly doubles.
+    assert lod_duplex > lod_free * 1.5
+    # But error suppression still beats SSCS at this background-limited operating
+    # point -- so the net effect is a genuine trade-off, not a strict loss.
+    assert lod_duplex < lod_sscs
+    # At a fixed VAF the strand penalty lowers detection probability.
+    vaf = 3e-6
+    assert detection_probability(duplex, RULE, vaf) < detection_probability(duplex_free, RULE, vaf)
 
 
 def test_achievable_lod_is_at_hit_rate() -> None:
