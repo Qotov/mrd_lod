@@ -8,7 +8,7 @@ import pytest
 from mrd_lod_sim.analytic import detection_probability
 from mrd_lod_sim.config import AssayConfig
 from mrd_lod_sim.detect import AggregatePoissonRule
-from mrd_lod_sim.errors import ConstantError
+from mrd_lod_sim.errors import REGIME_PRESETS, ConstantError
 from mrd_lod_sim.panel import PanelModel
 from mrd_lod_sim.params import MoleculeParams
 from mrd_lod_sim.surface import achievable_lod, lod_surface, what_would_it_take
@@ -28,31 +28,47 @@ RULE = AggregatePoissonRule(alpha=0.05)
 
 
 def test_duplex_strand_penalty_is_not_free() -> None:
-    """The duplex trade-off (BUILD_SPEC 2.1, test #7): duplex lowers epsilon AND
-    reduces usable molecules via strand_recovery, so the net benefit depends on
-    the regime. Guards the dashboard bug where duplex was modelled as a pure,
-    cost-free error reduction."""
+    """Two-axis duplex trade-off (BUILD_SPEC 2.1, round-2 P0). Error suppression
+    (eps) and molecule retention (strand_recovery) are INDEPENDENT. Conventional
+    duplex pays a strand-re-pairing molecule penalty; linked-duplex (CODEC-type)
+    chemistry gets the same both-strand eps at higher retention. So the net LoD
+    depends on which both-strand method is chosen -- duplex is not free error
+    suppression, and its cost is an implementation detail, not a principle."""
     panel = PanelModel(500, ccf_alpha=9.0, ccf_beta=1.0)
-    sscs = AssayConfig(MoleculeParams(30.0, 0.4, 1.0), panel, ConstantError(1e-5))
-    duplex_free = AssayConfig(MoleculeParams(30.0, 0.4, 1.0), panel, ConstantError(1e-7))
-    duplex = AssayConfig(MoleculeParams(30.0, 0.4, 0.5), panel, ConstantError(1e-7))
 
-    # The molecule cost is real: strand recovery 0.5 halves effective GE.
-    assert duplex.ge_eff() == pytest.approx(0.5 * sscs.ge_eff())
+    def conf(regime: str, strand: float | None = None) -> AssayConfig:
+        p = REGIME_PRESETS[regime]
+        s = p["strand"] if strand is None else strand
+        return AssayConfig(MoleculeParams(30.0, 0.4, s), panel, ConstantError(p["eps"]))
+
+    sscs = conf("SSCS")
+    conventional = conf("DUPLEX")            # strand ~0.5
+    linked = conf("LINKED_DUPLEX")           # strand ~0.8, SAME eps
+    duplex_free = conf("DUPLEX", strand=1.0)  # both-strand eps, no molecule cost
+
+    # Conventional duplex reduces effective GE relative to SSCS...
+    assert conventional.ge_eff() < sscs.ge_eff()
+    # ...but that penalty is not intrinsic to both-strand evidence: at EQUAL eps,
+    # linked duplex retains more molecules than conventional duplex.
+    assert REGIME_PRESETS["LINKED_DUPLEX"]["eps"] == REGIME_PRESETS["DUPLEX"]["eps"]
+    assert linked.ge_eff() > conventional.ge_eff()
 
     lod_free = achievable_lod(duplex_free, RULE, 0.95)
-    lod_duplex = achievable_lod(duplex, RULE, 0.95)
+    lod_linked = achievable_lod(linked, RULE, 0.95)
+    lod_conv = achievable_lod(conventional, RULE, 0.95)
     lod_sscs = achievable_lod(sscs, RULE, 0.95)
 
-    # Duplex is NOT free: the strand penalty worsens (raises) the LoD vs the
-    # physically wrong cost-free duplex -- here it roughly doubles.
-    assert lod_duplex > lod_free * 1.5
-    # But error suppression still beats SSCS at this background-limited operating
-    # point -- so the net effect is a genuine trade-off, not a strict loss.
-    assert lod_duplex < lod_sscs
-    # At a fixed VAF the strand penalty lowers detection probability.
+    # The net LoD depends on the regime: at equal eps, more retained molecules
+    # give a lower (better) LoD, so free < linked < conventional.
+    assert lod_free < lod_linked < lod_conv
+    # Duplex is NOT free: conventional duplex is materially worse than the
+    # (physically wrong) cost-free duplex -- here it roughly doubles.
+    assert lod_conv > lod_free * 1.5
+    # Error suppression still helps: even conventional duplex beats SSCS here.
+    assert lod_conv < lod_sscs
+    # At a fixed VAF the extra molecules of linked duplex raise detection prob.
     vaf = 3e-6
-    assert detection_probability(duplex, RULE, vaf) < detection_probability(duplex_free, RULE, vaf)
+    assert detection_probability(linked, RULE, vaf) > detection_probability(conventional, RULE, vaf)
 
 
 def test_achievable_lod_is_at_hit_rate() -> None:

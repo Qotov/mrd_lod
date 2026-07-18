@@ -21,7 +21,7 @@ import numpy as np
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from mrd_lod_sim.analytic import _aggregate_detection_probability, detection_probability
-from mrd_lod_sim.errors import REGIME_RATES, REGIME_STRAND
+from mrd_lod_sim.errors import REGIME_PRESETS, REGIME_RATES
 from mrd_lod_sim.molecules import molecule_budget
 from mrd_lod_sim.params import tf_from_vaf
 from mrd_lod_sim.scenario import Scenario
@@ -238,7 +238,11 @@ def build_payload(scenario: Scenario, presets: list[Scenario] | None = None) -> 
             "hit_rate": scenario.hit_rate,
         },
         "regimes": REGIME_RATES,
-        "regime_strand": REGIME_STRAND,
+        # Two-axis regime presets (eps + strand_recovery), the single source of
+        # truth from Python (BUILD_SPEC round-2 P0). `regime_strand` is derived
+        # for backward-compatibility with the current UI until it migrates.
+        "regime_presets": REGIME_PRESETS,
+        "regime_strand": {k: v["strand"] for k, v in REGIME_PRESETS.items()},
         "golden": _golden_vectors(alpha),
         "mc_curve": _mc_curve(scenario, mc_rule),
         "mc_settings": _mc_settings(scenario, alpha_ui),

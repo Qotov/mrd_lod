@@ -104,11 +104,30 @@ this is the headline test that validates both implementations.
 
 ### Error regimes (order-of-magnitude priors)
 
-| Regime | Approx. mean per-base error | Consensus method |
-|---|---|---|
-| `RAW`    | ~1e-3 | none (raw reads) |
-| `SSCS`   | ~1e-5 | single-strand UMI consensus |
-| `DUPLEX` | ~1e-7 | duplex consensus |
+Each regime sets two **independent** parameters — the background error rate `eps` and the molecule
+retention `strand_recovery`:
+
+| Regime | `eps` | `strand_recovery` | Method |
+|---|---|---|---|
+| `RAW`            | ~1e-3 | 1.0  | none (raw reads) |
+| `SSCS`           | ~1e-5 | 1.0  | single-strand UMI consensus |
+| `DUPLEX`         | ~1e-7 | ~0.5 | conventional duplex — strand re-pairing costs molecules |
+| `LINKED_DUPLEX`  | ~1e-7 | ~0.8 | linked duplex (CODEC-type) — strands joined before dissociation |
+
+### Both-strand evidence is not the same as conventional duplex
+
+It is tempting to treat "trust a variant only if it appears on both strands" as inherently costing you
+half your molecules. It does not. That molecule penalty is an artefact of *conventional* duplex
+sequencing, where the two strands of each original molecule dissociate during library preparation and
+must be re-paired computationally afterwards — and that re-pairing is what wastes reads and molecules.
+
+Methods that **physically link the two strands before dissociation** (CODEC-type approaches, and
+PEG-linker / circularisation variants) obtain the same both-strand error suppression at far higher
+retention. So error suppression (`eps`) and molecule retention (`strand_recovery`) are **two
+independent axes**: different both-strand chemistries sit at different points in that space, and this
+tool models the two axes separately rather than hardcoding one coupling. `strand_recovery` is itself an
+order-of-magnitude prior — in conventional duplex it is depth-dependent. Linked-duplex reference:
+Yin et al., *Nature Genetics* 2023 (CODEC).
 
 ## Assumptions and limitations
 
@@ -162,7 +181,9 @@ All numeric priors are **order-of-magnitude**, cited as priors and **not** prese
 - `RAW` ~1e-3 per-base substitution error — raw Illumina error rate (e.g. Schirmer et al., *BMC
   Bioinformatics* 2016).
 - `SSCS` ~1e-5 — single-strand UMI consensus (Kennedy et al., *Nature Protocols* 2014).
-- `DUPLEX` ~1e-7 — duplex sequencing (Schmitt et al., *PNAS* 2012).
+- `DUPLEX` ~1e-7 — conventional duplex sequencing (Schmitt et al., *PNAS* 2012).
+- `LINKED_DUPLEX` ~1e-7 at higher retention — concatenating original duplex sequencing / CODEC
+  (Yin et al., *Nature Genetics* 2023).
 
 Replace these with values fitted from your own data via `mrd-lod calibrate` as soon as it exists.
 

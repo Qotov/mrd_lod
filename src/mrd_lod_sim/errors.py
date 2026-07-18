@@ -31,18 +31,9 @@ __all__ = [
     "ContextualError",
     "EmpiricalError",
     "REGIME_RATES",
-    "REGIME_STRAND",
+    "REGIME_PRESETS",
     "error_preset",
 ]
-
-#: Default strand-recovery penalty coupled to each consensus regime (BUILD_SPEC 2.1).
-#: Duplex consensus requires recovering BOTH strands of each original molecule, so
-#: every half-caught molecule is discarded -- roughly halving usable molecules. The
-#: single-strand regimes keep everything recovered. This is the "duplex trade-off":
-#: lower error *and* fewer molecules, so the net benefit depends on which limit you
-#: are in. Configurable; the dashboard uses these as defaults when the error regime
-#: is toggled, and exposes strand recovery as its own control.
-REGIME_STRAND: dict[str, float] = {"RAW": 1.0, "SSCS": 1.0, "DUPLEX": 0.5}
 
 
 class ErrorModel(ABC):
@@ -230,12 +221,51 @@ REGIME_RATES: dict[str, float] = {
     "DUPLEX": 1e-7,
 }
 
+#: Consensus-regime presets on TWO INDEPENDENT axes (BUILD_SPEC 2.1, 2.4).
+#:
+#: Error suppression (``eps``) and molecule retention (``strand_recovery``) are
+#: independent. "Trust a variant only if it appears on both strands" does not, by
+#: itself, cost molecules: the loss in *conventional* duplex comes from the two
+#: strands dissociating during library prep and having to be re-paired
+#: computationally afterwards. Methods that physically link the strands before
+#: dissociation (CODEC-type; Yin et al., Nature Genetics 2023) get the same
+#: both-strand error suppression at far higher retention. Different both-strand
+#: chemistries therefore occupy different points in (eps, strand_recovery) space,
+#: and the model represents any of them rather than assuming one coupling.
+#:
+#: ``eps`` values reuse ``REGIME_RATES`` (single source). ``strand_recovery`` is
+#: an order-of-magnitude prior -- especially for conventional duplex, where it is
+#: depth-dependent. These drive the dashboard's regime presets; the underlying
+#: config keeps the two axes fully independent.
+REGIME_PRESETS: dict[str, dict] = {
+    "RAW": {
+        "eps": REGIME_RATES["RAW"], "strand": 1.0,
+        "label": "Raw", "note": "no consensus",
+    },
+    "SSCS": {
+        "eps": REGIME_RATES["SSCS"], "strand": 1.0,
+        "label": "SSCS", "note": "single-strand consensus",
+    },
+    "DUPLEX": {
+        "eps": REGIME_RATES["DUPLEX"], "strand": 0.5,
+        "label": "Duplex (conventional)",
+        "note": "strand re-pairing after dissociation costs molecules",
+    },
+    "LINKED_DUPLEX": {
+        "eps": REGIME_RATES["DUPLEX"], "strand": 0.8,
+        "label": "Linked duplex (CODEC-type)",
+        "note": "strands physically joined before dissociation, so more are retained",
+    },
+}
+
 
 def error_preset(regime: str, sigma: float = 0.0) -> ErrorModel:
     """Construct a named regime preset whose ``mean_rate()`` equals the prior.
 
     Args:
-        regime: one of ``REGIME_RATES`` (case-insensitive).
+        regime: one of ``REGIME_PRESETS`` (case-insensitive). Only the ``eps``
+            axis is used here; ``strand_recovery`` is a molecule-budget parameter
+            set independently (see ``MoleculeParams``).
         sigma: log-space spread. ``0.0`` returns a :class:`ConstantError`;
             ``> 0`` returns a :class:`LogNormalError` whose median is chosen so
             the analytic mean still equals the regime's quoted rate
@@ -244,9 +274,9 @@ def error_preset(regime: str, sigma: float = 0.0) -> ErrorModel:
             spread.
     """
     key = regime.upper()
-    if key not in REGIME_RATES:
-        raise ValueError(f"unknown regime {regime!r}; choose from {list(REGIME_RATES)}")
-    rate = REGIME_RATES[key]
+    if key not in REGIME_PRESETS:
+        raise ValueError(f"unknown regime {regime!r}; choose from {list(REGIME_PRESETS)}")
+    rate = REGIME_PRESETS[key]["eps"]
     if sigma == 0.0:
         return ConstantError(rate)
     median = rate * math.exp(-(sigma**2) / 2.0)

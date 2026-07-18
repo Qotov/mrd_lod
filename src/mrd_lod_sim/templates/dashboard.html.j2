@@ -135,12 +135,13 @@
       <input type="range" id="nlog" min="1" max="3.699" step="0.01">
     </div>
     <div class="ctrl">
-      <label><span class="term" data-tip-title="Error regime" data-tip="How aggressively the chemistry suppresses background noise — false ‘mutations’ introduced by sequencing itself. Lower error lets you trust smaller signals. The buttons set a typical error rate for each method.">Error regime</span></label>
+      <label><span class="term" data-tip-title="Error regime" data-tip="How aggressively the chemistry suppresses background noise — false ‘mutations’ introduced by sequencing itself — and how many molecules survive it. Each button sets both a typical error rate and a typical molecule retention (strand recovery).">Error regime</span></label>
       <div class="seg" id="regime">
-        <button data-r="RAW" data-tip-title="Raw" data-tip="No error correction. About 1 false base in every 1,000 — far too noisy to see rare tumour DNA on its own.">Raw</button>
-        <button data-r="SSCS" data-tip-title="SSCS — single-strand consensus" data-tip="Reads coming from the same original molecule are grouped by a molecular barcode (UMI) and merged into one agreed call, cancelling random errors. About 1 error in 100,000.">SSCS</button>
-        <button data-r="DUPLEX" data-tip-title="Duplex consensus" data-tip="The cleanest option: a base is only trusted when BOTH strands of the original DNA molecule agree. About 1 error in 10,000,000 — but molecules where only one strand was recovered are discarded, so you keep about half as many (see Strand recovery).">Duplex</button>
-        <button data-r="CUSTOM" data-tip-title="Custom error" data-tip="Set the background error rate yourself with the slider that appears below.">Custom</button>
+        <button data-r="RAW" data-tip-title="Raw" data-tip="No error correction. About 1 false base in every 1,000 — far too noisy to see rare tumour DNA on its own. Keeps all molecules.">Raw</button>
+        <button data-r="SSCS" data-tip-title="SSCS — single-strand consensus" data-tip="Reads from the same original molecule are grouped by a molecular barcode (UMI) and merged into one agreed call, cancelling random errors. About 1 error in 100,000. Keeps all molecules.">SSCS</button>
+        <button data-r="DUPLEX" data-tip-title="Duplex (conventional)" data-tip="A base is trusted only when BOTH strands of the original molecule agree — about 1 error in 10,000,000. In conventional duplex the two strands come apart during library prep and must be re-paired afterwards, so you keep only about half the molecules (strand recovery ≈ 0.5).">Duplex</button>
+        <button data-r="LINKED_DUPLEX" data-tip-title="Linked duplex (CODEC-type)" data-tip="Same both-strand error suppression as duplex (~1 in 10,000,000), but the two strands are physically joined before they can come apart, so far more molecules survive (strand recovery ≈ 0.8). The molecule cost of duplex is an implementation detail, not a law — this is the point. Ref: Yin et al., Nature Genetics 2023.">Linked</button>
+        <button data-r="CUSTOM" data-tip-title="Custom" data-tip="Set the background error rate and strand recovery yourself with the sliders — the two axes are independent, so you can place any both-strand chemistry here.">Custom</button>
       </div>
     </div>
     <div class="ctrl" id="customWrap" style="display:none">
@@ -148,10 +149,11 @@
       <input type="range" id="epslog" min="-8" max="-2" step="0.05">
     </div>
     <div class="ctrl">
-      <label><span class="term" data-tip-title="Strand recovery" data-tip="The fraction of molecules you keep when a method requires both strands. Duplex needs both strands of each original molecule, so about half are thrown away (0.5). Single-strand methods keep them all (1.0). This is the hidden cost of duplex: cleaner reads, but fewer molecules to look at.">Strand recovery</span> <span class="val"><span id="strandV"></span>×</span></label>
-      <input type="range" id="strand" min="0.3" max="1" step="0.05">
-      <div class="sub" style="margin-top:4px">Duplex needs both strands → ~0.5× the usable
-        molecules; single-strand consensus keeps 1.0×. Set automatically by the regime, overridable here.</div>
+      <label><span class="term" data-tip-title="Strand recovery" data-tip="The fraction of molecules that survive the chemistry — an axis independent of error rate. Single-strand methods keep everything (1.0). Conventional duplex loses about half re-pairing strands (0.5). Linked duplex keeps most of them (~0.8) at the same low error. Presets set a typical value; drag to model any point.">Strand recovery</span> <span class="val"><span id="strandV"></span>×</span></label>
+      <input type="range" id="strand" min="0.1" max="1" step="0.05">
+      <div class="sub" style="margin-top:4px">Molecule retention — independent of the error rate.
+        1.0× keeps all molecules; conventional duplex ~0.5×; linked duplex ~0.8×. Set by the regime,
+        overridable here (moving it switches the regime to Custom).</div>
     </div>
     <div class="ctrl">
       <label><span class="term" data-tip-title="Target specificity" data-tip="How sure you want to be that a ‘positive’ result is not a false alarm. 99% means at most 1 in 100 truly tumour-free samples is wrongly flagged positive. A stricter bar demands more evidence, which slightly raises (worsens) the detection limit.">Target specificity</span></label>
@@ -356,11 +358,15 @@ const $=id=>document.getElementById(id);
 let state={
   input_ng:cur.input_ng, conv:cur.conversion_efficiency, strand:cur.strand_recovery,
   pg:cur.pg_per_ge, n:cur.n_variants, e_ccf:cur.e_ccf, eps:cur.eps,
-  regime:regimeOf(cur.eps), spec:tgt.specificity, rule:PAYLOAD.meta.rule,
+  regime:regimeOf(cur.eps, cur.strand_recovery), spec:tgt.specificity, rule:PAYLOAD.meta.rule,
   k:cur.k, per_site_alpha:cur.per_site_alpha, targetTF:tgt.tf
 };
-function regimeOf(eps){
-  for(const [k,v] of Object.entries(PAYLOAD.regimes)) if(Math.abs(eps-v)/v<0.01) return k;
+// A regime is identified by BOTH axes (eps AND strand recovery), because
+// conventional and linked duplex share the same eps and differ only in retention.
+function regimeOf(eps, strand){
+  for(const [k,v] of Object.entries(PAYLOAD.regime_presets)){
+    if(Math.abs(eps-v.eps)/v.eps<0.01 && Math.abs(strand-v.strand)<0.02) return k;
+  }
   return 'CUSTOM';
 }
 function ruleKey(name){ return name==='KofNRule'?'kofn':name==='LikelihoodRatioRule'?'lr':'aggregate'; }
@@ -609,7 +615,7 @@ function populatePresets(){
 function applyPreset(p){
   state.input_ng=p.input_ng; state.conv=p.conv; state.strand=p.strand;
   state.n=p.n; state.eps=p.eps; state.spec=p.spec; state.rule=p.rule; state.targetTF=p.targetTF;
-  state.regime=regimeOf(p.eps);
+  state.regime=regimeOf(p.eps, p.strand);
   syncInputs(); schedule();
 }
 function markCustom(){ const s=$('preset'); if(s) s.value=''; }
@@ -657,7 +663,7 @@ function hashToState(){
   state.n=Math.round(num('n',state.n)); state.eps=num('eps',state.eps);
   state.strand=num('st',state.strand);
   state.spec=num('sp',state.spec); state.rule=p.get('rl')||state.rule;
-  state.targetTF=num('tf',state.targetTF); state.regime=regimeOf(state.eps);
+  state.targetTF=num('tf',state.targetTF); state.regime=regimeOf(state.eps, state.strand);
   markCustom();  // a shared link is, by definition, a custom configuration
 }
 
@@ -690,18 +696,19 @@ $('rule').onchange=e=>{state.rule=e.target.value;markCustom();schedule();};
 $('target').oninput=e=>{const v=parseNum(e.target.value); if(!isFinite(v)) return;
   state.targetTF=Math.max(0,v/100);
   $('targetVafNote').textContent=`= ${fmtPct(state.targetTF)}  ·  VAF = ${fmtPct(tfToVaf(state.targetTF)).replace(' TF','')} `;markCustom();schedule();};
-$('epslog').oninput=e=>{state.eps=Math.pow(10,+e.target.value);$('epsExpV').textContent=(+e.target.value).toFixed(1);markCustom();schedule();};
-$('strand').oninput=e=>{state.strand=+e.target.value;$('strandV').textContent=(+state.strand.toFixed(2));markCustom();schedule();};
+// Moving either the error or the strand slider flips the regime to Custom: the
+// two axes are now unlocked and no named preset owns the point.
+$('epslog').oninput=e=>{state.eps=Math.pow(10,+e.target.value);$('epsExpV').textContent=(+e.target.value).toFixed(1);
+  state.regime='CUSTOM'; setRegimeButtons(); markCustom(); schedule();};
+$('strand').oninput=e=>{state.strand=+e.target.value;$('strandV').textContent=(+state.strand.toFixed(2));
+  state.regime='CUSTOM'; setRegimeButtons(); markCustom(); schedule();};
 document.querySelectorAll('#regime button').forEach(b=>b.onclick=()=>{
   state.regime=b.dataset.r;
-  if(state.regime!=='CUSTOM'){
-    state.eps=PAYLOAD.regimes[state.regime];
-    // Couple the strand-recovery penalty to the regime: duplex needs both
-    // strands, so ~half the molecules are lost (BUILD_SPEC 2.1). This is the
-    // whole "duplex trade-off" -- lower error, fewer molecules.
-    const rs=(PAYLOAD.regime_strand||{})[state.regime];
-    if(rs!=null) state.strand=rs;
-  }
+  // A regime preset sets BOTH axes explicitly (error rate AND molecule
+  // retention), from the Python source of truth -- no numbers hardcoded here.
+  // Custom leaves both sliders as they are.
+  const preset=(PAYLOAD.regime_presets||{})[state.regime];
+  if(preset){ state.eps=preset.eps; state.strand=preset.strand; }
   setRegimeButtons(); markCustom(); syncInputs(); schedule();
 });
 

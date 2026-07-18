@@ -75,7 +75,8 @@ def test_rendered_units_and_labels(tmp_path) -> None:
     assert "initTooltips" in html
     for term in (
         "cfDNA input", "Conversion efficiency", "Panel size (N)",
-        "SSCS — single-strand consensus", "Duplex consensus", "Strand recovery",
+        "SSCS — single-strand consensus", "Duplex (conventional)",
+        "Linked duplex (CODEC-type)", "Strand recovery",
         "Target specificity", "Detection rule", "Tumour fraction (TF)",
         "Effective genome equivalents",
     ):
@@ -105,6 +106,13 @@ def test_payload_mc_settings_and_extras(tmp_path) -> None:
     assert all(("rel" in g) for g in pw["grid"])
     # regime -> strand coupling is exposed to the page.
     assert payload["regime_strand"]["DUPLEX"] < payload["regime_strand"]["SSCS"]
+    # Two-axis regime presets (round-2 P0): five regimes, eps + strand each, with
+    # linked duplex retaining more molecules than conventional at the same eps.
+    rp = payload["regime_presets"]
+    assert {"RAW", "SSCS", "DUPLEX", "LINKED_DUPLEX"} <= set(rp)
+    assert rp["LINKED_DUPLEX"]["eps"] == rp["DUPLEX"]["eps"]
+    assert rp["LINKED_DUPLEX"]["strand"] > rp["DUPLEX"]["strand"]
+    assert all({"eps", "strand", "label", "note"} <= set(v) for v in rp.values())
 
 
 def test_cli_simulate(tmp_path) -> None:
