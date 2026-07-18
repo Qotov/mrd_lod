@@ -129,10 +129,9 @@ def compare_predicted_observed(
     disc = observed - predicted
     mean_disc = float(np.mean(disc))
 
-    # Blank behaviour: any near-zero level acts as a contamination probe.
+    # Blank behaviour: treat the smallest level as a contamination probe only if
+    # it is very small (a near-blank).
     blank_fp: float | None = None
-    blank_mask = levels <= levels.min() * 1.0 if levels.size else np.array([])
-    # Treat the smallest level as the blank proxy only if it is very small.
     if levels.size and levels.min() <= 1e-7:
         blank_fp = float(observed[np.argmin(levels)])
 

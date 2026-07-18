@@ -21,7 +21,6 @@ import typer
 from mrd_lod_sim.calibrate import (
     compare_predicted_observed,
     estimate_error_model,
-    fit_conversion_efficiency,
 )
 from mrd_lod_sim.report import render_dashboard
 from mrd_lod_sim.scenario import load_scenario

@@ -14,15 +14,12 @@ supplies:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from mrd_lod_sim.analytic import _aggregate_detection_probability, detection_probability
-from mrd_lod_sim.config import AssayConfig
-from mrd_lod_sim.detect import AggregatePoissonRule
+from mrd_lod_sim.analytic import _aggregate_detection_probability
 from mrd_lod_sim.errors import REGIME_RATES
 from mrd_lod_sim.molecules import molecule_budget
 from mrd_lod_sim.params import tf_from_vaf
