@@ -1,0 +1,28 @@
+# Default scenario for mrd-lod-sim.
+# All values are order-of-magnitude priors, NOT measurements (BUILD_SPEC 12).
+
+[molecules]
+input_ng = 30.0              # cfDNA input mass
+conversion_efficiency = 0.4  # usable consensus families / input molecules (0.2-0.6 typical)
+strand_recovery = 1.0        # 1.0 single-strand consensus; ~0.5 for duplex
+
+[panel]
+n_variants = 500             # tracked variants (N)
+clonal = false
+ccf_alpha = 9.0              # CCF ~ Beta(9, 1): mostly clonal with a subclonal tail
+ccf_beta = 1.0
+dropout_prob = 0.0
+
+[error]
+model = "preset"
+regime = "SSCS"              # RAW ~1e-3 | SSCS ~1e-5 | DUPLEX ~1e-7
+sigma = 0.0
+
+[detection]
+rule = "aggregate"          # aggregate | kofn | lr
+alpha = 0.05
+
+[target]
+tf = 1e-5                   # 10 ppm tumour fraction (= 5 ppm VAF)
+specificity = 0.99
+hit_rate = 0.95

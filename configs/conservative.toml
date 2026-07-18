@@ -1,0 +1,28 @@
+# Conservative scenario: modest input, low conversion, single-strand consensus.
+# The "what real-world LoD might actually look like" case.
+
+[molecules]
+input_ng = 15.0
+conversion_efficiency = 0.2   # commonly underestimated; a frequent LoD killer
+strand_recovery = 1.0
+
+[panel]
+n_variants = 200
+clonal = false
+ccf_alpha = 4.0               # more subclonal weight than the default
+ccf_beta = 1.0
+dropout_prob = 0.0
+
+[error]
+model = "preset"
+regime = "SSCS"
+sigma = 0.5                   # site-to-site error heterogeneity
+
+[detection]
+rule = "aggregate"
+alpha = 0.05
+
+[target]
+tf = 1e-5
+specificity = 0.99
+hit_rate = 0.95
