@@ -11,3 +11,9 @@ wheels/
 
 outputs/
 results/
+
+# macOS
+.DS_Store
+
+# Local-only working notes (never publish)
+docs/DASHBOARD_FIXES.md

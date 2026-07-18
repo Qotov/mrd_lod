@@ -56,6 +56,38 @@ def test_dashboard_renders_self_contained(name, tmp_path) -> None:
     assert "src=\"http" not in html or "cdn.plot.ly" in html
 
 
+def test_rendered_units_and_labels(tmp_path) -> None:
+    # BUILD_SPEC review P0.1 / P1.1-P1.3: molecules not moles, ppm everywhere.
+    sc = load_scenario(CONFIGS / "default.toml")
+    html = render_dashboard(sc, tmp_path / "d.html").read_text()
+    # No standalone "mol" unit suffix (only the word "molecules").
+    assert " mol'" not in html and "} mol)" not in html and " mol<" not in html
+    assert "molecules" in html
+    # ppm-labelled axes / colorbar, not log10 or per-site VAF titles.
+    assert "tumour fraction (ppm)" in html
+    assert "LoD (ppm TF)" in html
+    assert "log₁₀ TF LoD" not in html
+    assert "'per-site VAF'" not in html
+
+
+def test_payload_mc_settings_and_extras(tmp_path) -> None:
+    # BUILD_SPEC review P0.2 / P3.1 / P3.2.
+    sc = load_scenario(CONFIGS / "default.toml")
+    presets = [load_scenario(CONFIGS / f"{n}.toml") for n in ("conservative", "default", "optimistic")]
+    payload = build_payload(sc, presets=presets)
+    # mc_settings records the generation alpha so the JS can hide a mismatched overlay.
+    mcs = payload["mc_settings"]
+    assert mcs["alpha"] == pytest.approx(payload["current"]["alpha"])
+    assert mcs["n_variants"] == sc.config.panel.n_variants
+    assert mcs["rule"] == "aggregate"
+    # presets carry every slider field.
+    assert [p["name"] for p in payload["presets"]] == ["conservative", "default", "optimistic"]
+    assert all({"input_ng", "conv", "n", "eps", "spec", "rule", "targetTF"} <= set(p) for p in payload["presets"])
+    # power estimate is present with a replicate grid.
+    assert payload["power"] is not None
+    assert len(payload["power"]["grid"]) >= 3
+
+
 def test_cli_simulate(tmp_path) -> None:
     res = runner.invoke(
         app,

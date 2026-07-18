@@ -2,6 +2,11 @@
 
 **A limit-of-detection simulator and design tool for tumour-informed ctDNA MRD assays.**
 
+**What it does:** tells you the limit of detection a given assay design can reach, and the cheapest
+change that would get you to a target. **Who it's for:** anyone sizing an MRD assay — panel size,
+cfDNA input, conversion efficiency, consensus chemistry. **Try it now:** open
+`outputs/dashboard.html` (generate it with the Quickstart below) and drag the sliders.
+
 ## What problem does this solve — and why simulation is *permanently* necessary
 
 This tool answers one question: **given an assay configuration, what limit of detection (LoD)
@@ -31,7 +36,13 @@ uv run mrd-lod surface   --config configs/default.toml --out results/
 Open `outputs/dashboard.html` in any browser (it is a single self-contained file; Plotly loads from
 CDN — see *Offline use* below). Scenarios are plain TOML in `configs/` — edit
 `input_ng`, `conversion_efficiency`, `n_variants`, the error `regime`, the detection `rule`, and the
-`target` — no code required.
+`target` — no code required. The dashboard also exposes the example scenarios as a one-click preset
+dropdown, so you don't have to touch TOML at all.
+
+> **The default scenario deliberately misses its own target.** It ships as single-strand consensus
+> (SSCS) at 10 ppm TF so the diagnostic path — the red *misses target* state and the "what would it
+> take?" lever analysis — is visible on load. Switch the error regime to **Duplex** (or pick the
+> `optimistic` preset) to see a passing configuration.
 
 ## Hero figure
 

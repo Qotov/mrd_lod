@@ -108,7 +108,16 @@ def dashboard(
 ) -> None:
     """Render the interactive HTML dashboard."""
     sc = load_scenario(config)
-    written = render_dashboard(sc, out)
+    # Offer sibling example scenarios as one-click presets (single source of
+    # truth: the TOML files themselves).
+    presets = []
+    seen = set()
+    for name in ("conservative", "default", "target", "optimistic", config.stem):
+        p = config.parent / f"{name}.toml"
+        if p.exists() and p.name not in seen:
+            seen.add(p.name)
+            presets.append(load_scenario(p))
+    written = render_dashboard(sc, out, presets=presets or None)
     typer.echo(f"wrote {written}")
 
 

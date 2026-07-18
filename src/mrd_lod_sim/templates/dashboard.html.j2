@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-US">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -78,6 +78,16 @@
   .plot{ width:100%; height:320px; }
   .foot{ color:var(--muted); font-size:12px; padding:0 28px 30px; }
   code{ background:var(--grid); padding:1px 5px; border-radius:4px; font-size:12px; }
+  /* Print / PDF: drop the control panel and stack the outputs full-width (P3.4). */
+  @media print{
+    :root{ --bg:#fff; --panel:#fff; --ink:#000; --line:#ccc; }
+    #controls{ display:none !important; }
+    .wrap{ grid-template-columns:1fr !important; padding:0 16px; }
+    .grid-out{ grid-template-columns:1fr !important; }
+    .banner.proxy{ display:none !important; }
+    .panel{ break-inside:avoid; border:1px solid #ddd; }
+    header{ padding:12px 16px 4px; }
+  }
 </style>
 </head>
 <body>
@@ -91,8 +101,12 @@
 
 <div class="wrap">
   <!-- CONTROLS -->
-  <div class="panel">
+  <div class="panel" id="controls">
     <h2>Assay configuration</h2>
+    <div class="ctrl" id="presetWrap" style="display:none">
+      <label>Scenario preset</label>
+      <select id="preset"></select>
+    </div>
     <div class="ctrl">
       <label>cfDNA input <span class="val"><span id="inV"></span> ng</span></label>
       <input type="range" id="input_ng" min="5" max="100" step="1">
@@ -137,7 +151,7 @@
     </div>
     <div class="ctrl">
       <label>Target LoD <span class="val">% TF</span></label>
-      <input type="number" id="target" min="0" step="0.0001">
+      <input type="number" id="target" min="0" step="0.0001" lang="en-US" inputmode="decimal">
       <div class="sub" id="targetVafNote" style="margin-top:5px"></div>
     </div>
   </div>
@@ -175,8 +189,9 @@
     </div>
 
     <div class="panel span2">
-      <h2>Detection probability vs VAF (current settings)</h2>
+      <h2>Detection probability vs tumour fraction (current settings)</h2>
       <div id="curve" class="plot"></div>
+      <div class="sub" id="mcNote" style="margin-top:6px"></div>
     </div>
 
     <div class="panel span2">
@@ -193,6 +208,11 @@
     <div class="panel span2" id="wwitPanel">
       <h2>What would it take?</h2>
       <div id="wwit"></div>
+    </div>
+
+    <div class="panel span2" id="powerPanel" style="display:none">
+      <h2>Experimental design — replicates per dilution level</h2>
+      <div class="interp" id="powerBody"></div>
     </div>
   </div>
 </div>
@@ -365,8 +385,8 @@ function render(){
   const mx=Math.max(mut,bg,1e-9);
   $('mutBar').style.width=(100*mut/mx)+'%';
   $('bgBar').style.width=(100*bg/mx)+'%';
-  $('mutV').textContent=fmtNum(mut)+' mol';
-  $('bgV').textContent=fmtNum(bg)+' mol';
+  $('mutV').textContent=fmtNum(mut)+' molecules';
+  $('bgV').textContent=fmtNum(bg)+' molecules';
   $('ratioV').textContent=`signal:background ≈ ${(mut/Math.max(bg,1e-9)).toPrecision(2)} : 1  ·  `+
     `${fmtNum(ge)} effective GE interrogated`;
 
@@ -391,30 +411,53 @@ function render(){
   drawSurface(s,hit);
   drawInterp(s,lodTF,pass,mut,bg);
   drawWwit(s,targetVaf,hit,pass);
+  stateToHash();
 }
 
+// The Monte Carlo overlay is a STATIC array baked in at generation time. Only
+// show it when the live UI settings match exactly what it was generated under --
+// otherwise the two curves are computed at different thresholds and disagree for
+// reasons that are not Monte Carlo error (BUILD_SPEC review P0.2).
+function mcMatches(s){
+  const g=PAYLOAD.mc_settings; if(!g) return false;
+  const near=(a,b)=>Math.abs(a-b)<=1e-9*Math.max(1,Math.abs(b));
+  const base = s.rule===g.rule && s.n===g.n_variants && near(s.input_ng,g.input_ng)
+    && near(s.conv,g.conversion_efficiency) && near(s.strand,g.strand_recovery)
+    && near(s.eps,g.eps) && near(s.e_ccf,g.e_ccf) && near(s.alpha,g.alpha);
+  return base && (s.rule!=='kofn' || (s.k===g.k && near(s.per_site_alpha,g.per_site_alpha)));
+}
+const vafToPpm=v=>v*2e6;  // per-site VAF -> ppm tumour fraction (TF = 2*VAF)
 function drawCurve(s,lodVaf,hit){
   const xs=[], ys=[];
   const centre = isFinite(lodVaf)? lodVaf : tfToVaf(state.targetTF);
   const lo=Math.log10(centre/60), hi=Math.log10(centre*60);
   const p=M.prep(s);  // threshold computed once, reused across the sweep
-  for(let i=0;i<=60;i++){ const v=Math.pow(10,lo+(hi-lo)*i/60); xs.push(v); ys.push(M.detectWith(p,s,v)); }
-  const mc=PAYLOAD.mc_curve;
+  for(let i=0;i<=60;i++){ const v=Math.pow(10,lo+(hi-lo)*i/60); xs.push(vafToPpm(v)); ys.push(M.detectWith(p,s,v)); }
   const traces=[
-    {x:xs,y:ys,mode:'lines',name:'analytic',line:{color:'#2f6df0',width:2.5}},
-    {x:mc.map(d=>d.vaf),y:mc.map(d=>d.p),mode:'markers',name:'Monte Carlo',
-      marker:{color:'#c9781a',size:6,symbol:'circle-open'}}
+    {x:xs,y:ys,mode:'lines',name:'analytic',line:{color:'#2f6df0',width:2.5},
+      hovertemplate:'%{x:.3g} ppm TF → P=%{y:.3f}<extra></extra>'}
   ];
-  if(isFinite(lodVaf)) traces.push({x:[lodVaf],y:[hit],mode:'markers',name:'LoD',
-    marker:{color:'#1f9d63',size:11,symbol:'x'}});
+  const show=mcMatches(s);
+  if(show){ const mc=PAYLOAD.mc_curve;
+    traces.push({x:mc.map(d=>vafToPpm(d.vaf)),y:mc.map(d=>d.p),mode:'markers',name:'Monte Carlo',
+      marker:{color:'#c9781a',size:6,symbol:'circle-open'},
+      hovertemplate:'Monte Carlo: %{x:.3g} ppm TF → %{y:.3f}<extra></extra>'});
+  }
+  if(isFinite(lodVaf)) traces.push({x:[vafToPpm(lodVaf)],y:[hit],mode:'markers',name:'LoD',
+    marker:{color:'#1f9d63',size:11,symbol:'x'},hovertemplate:'LoD %{x:.3g} ppm TF<extra></extra>'});
   Plotly.react('curve',traces,{
     margin:{l:52,r:12,t:8,b:44}, paper_bgcolor:'transparent', plot_bgcolor:'transparent',
     font:{color:getCss('--ink')}, showlegend:true, legend:{orientation:'h',y:1.12},
-    xaxis:{type:'log',title:'per-site VAF',gridcolor:getCss('--grid')},
+    xaxis:{type:'log',title:'tumour fraction (ppm)',gridcolor:getCss('--grid')},
     yaxis:{title:'P(detect)',range:[0,1.02],gridcolor:getCss('--grid')},
     shapes:[{type:'line',x0:xs[0],x1:xs[xs.length-1],y0:hit,y1:hit,
       line:{color:getCss('--muted'),dash:'dot',width:1}}]
   },{displayModeBar:false,responsive:true});
+  const g=PAYLOAD.mc_settings;
+  $('mcNote').textContent = show
+    ? 'Monte Carlo overlay (orange) validates the analytic curve at the current settings.'
+    : (g? `Monte Carlo overlay shown only at its generation settings (N=${g.n_variants}, ${g.regime_label}, `
+        + `${((1-g.alpha)*100).toFixed(1)}% specificity, ${g.rule} rule) — change settings back to see it.` : '');
 }
 
 // The surface grid depends only on conversion, error, rule and specificity --
@@ -440,20 +483,28 @@ function computeSurfaceZ(s,hit,sig){
 function plotSurface(){
   if(!_surf.z) return;
   const Z=_surf.z, nGrid=_surf.nGrid, mGrid=_surf.mGrid;
+  // customdata carries the LoD in human units (ppm TF) for the hover, while the
+  // z scale stays log10 for its dynamic range but is TICK-labelled in ppm.
+  const ppm=Z.map(row=>row.map(z=> z==null? null : Math.pow(10,z)*1e6));
+  const targetPpm=state.targetTF*1e6;
   Plotly.react('surface',[{
-    z:Z,x:nGrid,y:mGrid,type:'contour',colorscale:'Viridis',
-    colorbar:{title:'log₁₀ TF LoD',titleside:'right'},
+    z:Z,x:nGrid,y:mGrid,type:'contour',colorscale:'Viridis',name:'LoD',
+    customdata:ppm,
+    hovertemplate:'panel N=%{x:.0f} × %{y:.0f} ng → <b>%{customdata:.1f} ppm TF</b><extra></extra>',
+    colorbar:{title:'LoD (ppm TF)',titleside:'right',
+      tickvals:[-3,-4,-5,-6], ticktext:['1000 ppm','100 ppm','10 ppm','1 ppm']},
     contours:{coloring:'heatmap'}
   },{
-    x:[state.n],y:[state.input_ng],mode:'markers',type:'scatter',
+    x:[state.n],y:[state.input_ng],mode:'markers',type:'scatter',name:'current setting',
     marker:{color:'#fff',size:12,symbol:'cross-thin',line:{color:'#000',width:2}},
-    name:'current'
+    hovertemplate:'current: N=%{x:.0f}, %{y:.0f} ng<extra></extra>'
   },{
     z:Z,x:nGrid,y:mGrid,type:'contour',showscale:false,
+    name:`${targetPpm.toPrecision(3)} ppm TF target`, hoverinfo:'name',
     contours:{start:Math.log10(state.targetTF),end:Math.log10(state.targetTF),
       coloring:'lines'}, line:{color:'#c93838',width:2.5}
   }],{
-    margin:{l:56,r:12,t:8,b:46}, paper_bgcolor:'transparent', plot_bgcolor:'transparent',
+    margin:{l:66,r:12,t:8,b:46}, paper_bgcolor:'transparent', plot_bgcolor:'transparent',
     font:{color:getCss('--ink')}, showlegend:false,
     xaxis:{type:'log',title:'panel size (N)'}, yaxis:{title:'cfDNA input (ng)'}
   },{displayModeBar:false,responsive:true});
@@ -474,7 +525,7 @@ function drawInterp(s,lodTF,pass,mut,bg){
   if(pass) msg+=`That <b>meets</b> the ${fmtPct(state.targetTF)} target. `;
   else msg+=`That <b>misses</b> the ${fmtPct(state.targetTF)} target. `;
   if(mut<3) msg+=`Expected mutant molecules (${mut.toPrecision(2)}) are below the sampling floor — the limit is the sample, not the sequencer. `;
-  else if(bg>mut) msg+=`Background (${fmtNum(bg)} mol) exceeds signal (${fmtNum(mut)} mol) at target; a lower-error regime would help most. `;
+  else if(bg>mut) msg+=`Background (${fmtNum(bg)} molecules) exceeds signal (${fmtNum(mut)} molecules) at target; a lower-error regime would help most. `;
   else msg+=`Signal comfortably exceeds background at target. `;
   if(state.rule==='lr') msg+=`(LR shown via the aggregate-Poisson approximation.)`;
   $('interp').innerHTML=msg;
@@ -513,6 +564,68 @@ function leverEps(s,targetVaf,hit){
 
 function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
 
+// Locale-robust numeric parse: accept both '.' and ',' decimal separators.
+function parseNum(str){ const v=parseFloat(String(str).replace(',','.')); return v; }
+
+// ---- scenario presets (P3.2) -------------------------------------------
+function populatePresets(){
+  const ps=PAYLOAD.presets||[]; if(!ps.length) return;
+  const sel=$('preset'); $('presetWrap').style.display='block';
+  sel.innerHTML='<option value="">— custom —</option>'+
+    ps.map(p=>`<option value="${p.name}">${p.name}</option>`).join('');
+  sel.value = ps.some(p=>p.name===PAYLOAD.meta.name)? PAYLOAD.meta.name : '';
+  sel.onchange=e=>{ const p=ps.find(x=>x.name===e.target.value); if(p) applyPreset(p); };
+}
+function applyPreset(p){
+  state.input_ng=p.input_ng; state.conv=p.conv; state.strand=p.strand;
+  state.n=p.n; state.eps=p.eps; state.spec=p.spec; state.rule=p.rule; state.targetTF=p.targetTF;
+  state.regime=regimeOf(p.eps);
+  syncInputs(); schedule();
+}
+function markCustom(){ const s=$('preset'); if(s) s.value=''; }
+
+// ---- experimental-design (power) panel (P3.1) --------------------------
+function renderPower(){
+  const pw=PAYLOAD.power, panel=$('powerPanel');
+  if(!pw){ panel.style.display='none'; return; }
+  panel.style.display='block';
+  const req=pw.required_replicates;
+  const rows=pw.grid.map(g=>
+    `<tr><td style="text-align:right;padding:2px 14px">${g.n}</td>`+
+    `<td style="padding:2px 14px">${g.ci_ppm==null?'—':'±'+(g.ci_ppm/2).toPrecision(2)+' ppm TF'}</td></tr>`).join('');
+  const lead = req
+    ? `To pin this LoD (≈${pw.lod_ppm.toPrecision(2)} ppm TF) to a 95% confidence interval of about `+
+      `±${(pw.target_ci_ppm/2).toPrecision(2)} ppm TF, you need roughly <b>${req} replicates</b> per dilution level.`
+    : `A 95% CI of ±${(pw.target_ci_ppm/2).toPrecision(2)} ppm TF needs more than `+
+      `${pw.grid[pw.grid.length-1].n} replicates per level.`;
+  $('powerBody').innerHTML = lead +
+    `<table style="margin-top:10px;border-collapse:collapse;font-size:13px">`+
+    `<tr><th style="text-align:right;padding:2px 14px">replicates / level</th>`+
+    `<th style="text-align:left;padding:2px 14px">LoD 95% CI half-width</th></tr>${rows}</table>`+
+    `<div class="sub" style="margin-top:8px">Computed at the generation settings `+
+    `(N=${PAYLOAD.mc_settings.n_variants}, ${PAYLOAD.mc_settings.regime_label}); it sizes the real `+
+    `dilution study, not the live sliders.</div>`;
+}
+
+// ---- shareable URL state (P3.3) ----------------------------------------
+function stateToHash(){
+  const p=new URLSearchParams();
+  p.set('in',state.input_ng); p.set('cv',state.conv); p.set('n',state.n);
+  p.set('eps',state.eps); p.set('sp',state.spec); p.set('rl',state.rule);
+  p.set('tf',state.targetTF);
+  history.replaceState(null,'','#'+p.toString());
+}
+function hashToState(){
+  if(!location.hash || location.hash.length<2) return;
+  const p=new URLSearchParams(location.hash.slice(1));
+  const num=(k,d)=>p.has(k)?parseFloat(p.get(k)):d;
+  state.input_ng=num('in',state.input_ng); state.conv=num('cv',state.conv);
+  state.n=Math.round(num('n',state.n)); state.eps=num('eps',state.eps);
+  state.spec=num('sp',state.spec); state.rule=p.get('rl')||state.rule;
+  state.targetTF=num('tf',state.targetTF); state.regime=regimeOf(state.eps);
+  markCustom();  // a shared link is, by definition, a custom configuration
+}
+
 // ---- wire controls -----------------------------------------------------
 function setRegimeButtons(){
   document.querySelectorAll('#regime button').forEach(b=>
@@ -531,20 +644,24 @@ function syncInputs(){
 }
 let raf=null; function schedule(){ if(raf) cancelAnimationFrame(raf); raf=requestAnimationFrame(render); }
 
-$('input_ng').oninput=e=>{state.input_ng=+e.target.value;$('inV').textContent=state.input_ng;schedule();};
-$('conv').oninput=e=>{state.conv=+e.target.value/100;$('convV').textContent=e.target.value;schedule();};
-$('nlog').oninput=e=>{state.n=Math.round(Math.pow(10,+e.target.value));$('nV').textContent=fmtNum(state.n);schedule();};
-$('spec').onchange=e=>{state.spec=+e.target.value;schedule();};
-$('rule').onchange=e=>{state.rule=e.target.value;schedule();};
-$('target').oninput=e=>{state.targetTF=Math.max(0,+e.target.value/100);
-  $('targetVafNote').textContent=`= ${fmtPct(state.targetTF)}  ·  VAF = ${fmtPct(tfToVaf(state.targetTF)).replace(' TF','')} `;schedule();};
-$('epslog').oninput=e=>{state.eps=Math.pow(10,+e.target.value);$('epsExpV').textContent=(+e.target.value).toFixed(1);schedule();};
+$('input_ng').oninput=e=>{state.input_ng=+e.target.value;$('inV').textContent=state.input_ng;markCustom();schedule();};
+$('conv').oninput=e=>{state.conv=+e.target.value/100;$('convV').textContent=e.target.value;markCustom();schedule();};
+$('nlog').oninput=e=>{state.n=Math.round(Math.pow(10,+e.target.value));$('nV').textContent=fmtNum(state.n);markCustom();schedule();};
+$('spec').onchange=e=>{state.spec=+e.target.value;markCustom();schedule();};
+$('rule').onchange=e=>{state.rule=e.target.value;markCustom();schedule();};
+$('target').oninput=e=>{const v=parseNum(e.target.value); if(!isFinite(v)) return;
+  state.targetTF=Math.max(0,v/100);
+  $('targetVafNote').textContent=`= ${fmtPct(state.targetTF)}  ·  VAF = ${fmtPct(tfToVaf(state.targetTF)).replace(' TF','')} `;markCustom();schedule();};
+$('epslog').oninput=e=>{state.eps=Math.pow(10,+e.target.value);$('epsExpV').textContent=(+e.target.value).toFixed(1);markCustom();schedule();};
 document.querySelectorAll('#regime button').forEach(b=>b.onclick=()=>{
   state.regime=b.dataset.r;
   if(state.regime!=='CUSTOM') state.eps=PAYLOAD.regimes[state.regime];
-  setRegimeButtons(); syncInputs(); schedule();
+  setRegimeButtons(); markCustom(); syncInputs(); schedule();
 });
 
+populatePresets();
+hashToState();
+renderPower();
 syncInputs(); render();
 </script>
 </body>
