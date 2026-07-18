@@ -78,6 +78,19 @@
   .plot{ width:100%; height:320px; }
   .foot{ color:var(--muted); font-size:12px; padding:0 28px 30px; }
   code{ background:var(--grid); padding:1px 5px; border-radius:4px; font-size:12px; }
+  /* Hover glossary: any [data-tip] term gets a dotted underline + explanation. */
+  .term{ border-bottom:1px dashed var(--muted); cursor:help; }
+  h2 .term{ border-bottom-color:var(--line); }
+  .pill.term, .bar-row .k.term{ border-bottom:0; }
+  .bar-row .k.term{ text-decoration:underline dotted; text-underline-offset:3px; cursor:help; }
+  #tip{ position:fixed; z-index:1000; max-width:320px; padding:10px 12px; border-radius:9px;
+    background:#111722; color:#eef2f8; border:1px solid #2b3442;
+    box-shadow:0 8px 26px rgba(0,0,0,0.32); font-size:13px; line-height:1.45;
+    pointer-events:none; opacity:0; transition:opacity .1s; }
+  #tip .tip-title{ font-weight:680; margin-bottom:3px; color:#fff; }
+  @media (prefers-color-scheme: light){
+    #tip{ background:#1c2330; color:#eef2f8; border-color:#2b3442; }
+  }
   /* Print / PDF: drop the control panel and stack the outputs full-width (P3.4). */
   @media print{
     :root{ --bg:#fff; --panel:#fff; --ink:#000; --line:#ccc; }
@@ -94,7 +107,9 @@
 <header>
   <h1>ctDNA MRD — limit-of-detection design tool</h1>
   <div class="sub">Scenario <strong>{{ name }}</strong> · live analytic model · all levels shown as
-    <strong>tumour fraction (TF)</strong> unless axis-labelled VAF · numbers are order-of-magnitude priors, not measurements.</div>
+    <strong class="term" data-tip-title="Tumour fraction (TF)" data-tip="The fraction of all DNA in the blood sample that came from the tumour. This is the clinically meaningful number — how much tumour signal is present. MRD assays chase values of a few parts per million.">tumour fraction (TF)</strong>
+    unless axis-labelled <span class="term" data-tip-title="VAF (variant allele fraction)" data-tip="The fraction of molecules at one specific site that carry the mutation. For a typical heterozygous mutation, VAF = TF ÷ 2. The model works internally in VAF; the interface shows TF.">VAF</span>
+    · numbers are <span class="term" data-tip-title="Order-of-magnitude priors" data-tip="The default values are rough estimates drawn from the published literature, not measurements from any specific assay. Use them to explore the design space, then replace them with your own data via the calibrate step.">order-of-magnitude priors</span>, not measurements.</div>
 </header>
 
 <div id="drift" class="banner drift"></div>
@@ -104,42 +119,42 @@
   <div class="panel" id="controls">
     <h2>Assay configuration</h2>
     <div class="ctrl" id="presetWrap" style="display:none">
-      <label>Scenario preset</label>
+      <label><span class="term" data-tip-title="Scenario preset" data-tip="Pre-built example configurations (conservative, default, optimistic). Pick one to set every control at once, then fine-tune. Editing any control switches this back to ‘custom’.">Scenario preset</span></label>
       <select id="preset"></select>
     </div>
     <div class="ctrl">
-      <label>cfDNA input <span class="val"><span id="inV"></span> ng</span></label>
+      <label><span class="term" data-tip-title="cfDNA input" data-tip="How much cell-free DNA (in nanograms) you load into the assay. More input means more copies of the genome to search, so more chances to catch a rare tumour molecule. A typical blood draw yields roughly 5–50 ng.">cfDNA input</span> <span class="val"><span id="inV"></span> ng</span></label>
       <input type="range" id="input_ng" min="5" max="100" step="1">
     </div>
     <div class="ctrl">
-      <label>Conversion efficiency <span class="val"><span id="convV"></span>%</span></label>
+      <label><span class="term" data-tip-title="Conversion efficiency" data-tip="The fraction of input DNA molecules that survive library preparation and become usable, error-corrected reads. Most molecules are lost on the way — typically only 20–60% make it. This is the most commonly overestimated parameter and a frequent reason real-world sensitivity disappoints.">Conversion efficiency</span> <span class="val"><span id="convV"></span>%</span></label>
       <input type="range" id="conv" min="10" max="90" step="1">
     </div>
     <div class="ctrl">
-      <label>Panel size (N, log) <span class="val"><span id="nV"></span></span></label>
+      <label><span class="term" data-tip-title="Panel size (N)" data-tip="How many tumour-specific mutations you track for this patient. Each tracked mutation is an independent chance to spot residual disease, so a larger, well-chosen panel can detect lower tumour levels. Shown on a log scale from 10 to 5,000.">Panel size (N, log)</span> <span class="val"><span id="nV"></span></span></label>
       <input type="range" id="nlog" min="1" max="3.699" step="0.01">
     </div>
     <div class="ctrl">
-      <label>Error regime</label>
+      <label><span class="term" data-tip-title="Error regime" data-tip="How aggressively the chemistry suppresses background noise — false ‘mutations’ introduced by sequencing itself. Lower error lets you trust smaller signals. The buttons set a typical error rate for each method.">Error regime</span></label>
       <div class="seg" id="regime">
-        <button data-r="RAW">Raw</button>
-        <button data-r="SSCS">SSCS</button>
-        <button data-r="DUPLEX">Duplex</button>
-        <button data-r="CUSTOM">Custom</button>
+        <button data-r="RAW" data-tip-title="Raw" data-tip="No error correction. About 1 false base in every 1,000 — far too noisy to see rare tumour DNA on its own.">Raw</button>
+        <button data-r="SSCS" data-tip-title="SSCS — single-strand consensus" data-tip="Reads coming from the same original molecule are grouped by a molecular barcode (UMI) and merged into one agreed call, cancelling random errors. About 1 error in 100,000.">SSCS</button>
+        <button data-r="DUPLEX" data-tip-title="Duplex consensus" data-tip="The cleanest option: a base is only trusted when BOTH strands of the original DNA molecule agree. About 1 error in 10,000,000 — but molecules where only one strand was recovered are discarded, so you keep about half as many (see Strand recovery).">Duplex</button>
+        <button data-r="CUSTOM" data-tip-title="Custom error" data-tip="Set the background error rate yourself with the slider that appears below.">Custom</button>
       </div>
     </div>
     <div class="ctrl" id="customWrap" style="display:none">
-      <label>Custom ε (log) <span class="val">10<sup><span id="epsExpV"></span></sup></span></label>
+      <label><span class="term" data-tip-title="Custom ε (background error)" data-tip="Your own per-base background error rate, on a log scale. 10⁻⁵ means one false mutant base in every 100,000 bases sequenced.">Custom ε (log)</span> <span class="val">10<sup><span id="epsExpV"></span></sup></span></label>
       <input type="range" id="epslog" min="-8" max="-2" step="0.05">
     </div>
     <div class="ctrl">
-      <label>Strand recovery <span class="val"><span id="strandV"></span>×</span></label>
+      <label><span class="term" data-tip-title="Strand recovery" data-tip="The fraction of molecules you keep when a method requires both strands. Duplex needs both strands of each original molecule, so about half are thrown away (0.5). Single-strand methods keep them all (1.0). This is the hidden cost of duplex: cleaner reads, but fewer molecules to look at.">Strand recovery</span> <span class="val"><span id="strandV"></span>×</span></label>
       <input type="range" id="strand" min="0.3" max="1" step="0.05">
       <div class="sub" style="margin-top:4px">Duplex needs both strands → ~0.5× the usable
         molecules; single-strand consensus keeps 1.0×. Set automatically by the regime, overridable here.</div>
     </div>
     <div class="ctrl">
-      <label>Target specificity</label>
+      <label><span class="term" data-tip-title="Target specificity" data-tip="How sure you want to be that a ‘positive’ result is not a false alarm. 99% means at most 1 in 100 truly tumour-free samples is wrongly flagged positive. A stricter bar demands more evidence, which slightly raises (worsens) the detection limit.">Target specificity</span></label>
       <select id="spec">
         <option value="0.95">95%</option>
         <option value="0.99" selected>99%</option>
@@ -148,15 +163,15 @@
       </select>
     </div>
     <div class="ctrl">
-      <label>Detection rule</label>
+      <label><span class="term" data-tip-title="Detection rule" data-tip="The statistical method used to decide ‘is tumour DNA present?’. Aggregate Poisson pools every mutant molecule across the panel and tests the total against expected noise. k-of-N judges each mutation on its own and calls the sample positive if at least k light up (the Signatera style). Likelihood ratio weighs the evidence at every site and is the most powerful (shown here as an approximation).">Detection rule</span></label>
       <select id="rule">
-        <option value="aggregate">Aggregate Poisson</option>
-        <option value="kofn">k-of-N (Signatera-style)</option>
-        <option value="lr">Likelihood ratio (approx)</option>
+        <option value="aggregate" title="Pool all mutant molecules across the panel and test the total against expected background. Efficient and simple.">Aggregate Poisson</option>
+        <option value="kofn" title="Judge each tracked mutation individually; call the sample positive if at least k of them are significant. Intuitive and robust (Signatera-style).">k-of-N (Signatera-style)</option>
+        <option value="lr" title="The statistically most powerful rule; weighs evidence at every site. Shown here via the aggregate-Poisson approximation.">Likelihood ratio (approx)</option>
       </select>
     </div>
     <div class="ctrl">
-      <label>Target LoD <span class="val">% TF</span></label>
+      <label><span class="term" data-tip-title="Target LoD" data-tip="The detection limit you are aiming for, written as a percentage of tumour fraction (0.001% = 10 ppm). Smaller means you want to detect less tumour DNA — a harder goal. The hero readout turns green when the design reaches it.">Target LoD</span> <span class="val">% TF</span></label>
       <input type="text" id="target" lang="en-US" inputmode="decimal" autocomplete="off">
       <div class="sub" id="targetVafNote" style="margin-top:5px"></div>
     </div>
@@ -168,21 +183,21 @@
       <div id="proxy" class="banner proxy">Likelihood-ratio rule shown via the aggregate-Poisson
         approximation (it has no closed form; it is the most efficient rule and the aggregate sits just below it at ppm scale).</div>
       <div id="floor" class="banner floor"></div>
-      <h2>Achievable limit of detection</h2>
+      <h2><span class="term" data-tip-title="Achievable limit of detection (LoD)" data-tip="The lowest tumour fraction this design can reliably detect, at the stated detection rate (95%) and specificity. Lower is more sensitive. Shown as tumour fraction in parts per million.">Achievable limit of detection</span></h2>
       <div class="hero">
         <div class="lod" id="lodOut">—</div>
-        <div class="pill" id="passPill">—</div>
+        <div class="pill term" id="passPill" data-tip-title="Meets / misses target" data-tip="Green when the achievable LoD is at or below your Target LoD, red when it falls short. When it misses, the ‘What would it take?’ panel lists the smallest change that would fix it.">—</div>
         <div class="note" id="lodNote"></div>
       </div>
     </div>
 
     <div class="panel">
-      <h2>Molecule budget at target</h2>
+      <h2><span class="term" data-tip-title="Molecule budget" data-tip="A head-count of the molecules in play at your target level: how many genuine tumour (‘mutant’) molecules you expect to see versus how many false (‘background’) molecules from noise. If mutant molecules do not comfortably outnumber background, detection is not physically possible — this is the most intuitive check in the tool.">Molecule budget</span> at target</h2>
       <div class="bars">
-        <div class="bar-row"><div class="k">Mutant</div>
+        <div class="bar-row"><div class="k term" data-tip-title="Mutant molecules" data-tip="The expected number of genuine tumour-derived mutant molecules present in the tube at the target level. If this is below ~3, the molecules simply are not there to be found, whatever you do downstream.">Mutant</div>
           <div class="bar-track"><div class="bar-fill" id="mutBar" style="background:var(--accent)"></div></div>
           <div class="v" id="mutV"></div></div>
-        <div class="bar-row"><div class="k">Background</div>
+        <div class="bar-row"><div class="k term" data-tip-title="Background molecules" data-tip="The expected number of fake mutant molecules produced by sequencing and chemistry noise at the target level. Lower-error regimes (SSCS, Duplex) shrink this number.">Background</div>
           <div class="bar-track"><div class="bar-fill" id="bgBar" style="background:var(--muted)"></div></div>
           <div class="v" id="bgV"></div></div>
       </div>
@@ -190,34 +205,34 @@
     </div>
 
     <div class="panel">
-      <h2>Effective molecules</h2>
+      <h2><span class="term" data-tip-title="Effective genome equivalents" data-tip="How many complete copies of the genome you actually end up examining after all molecule losses. One genome equivalent is the DNA in a single cell (~3.3 pg). This is the true sample size that caps how low you can detect — extra sequencing cannot add molecules that were never in the tube.">Effective molecules</span></h2>
       <div class="interp" id="budgetProse"></div>
     </div>
 
     <div class="panel span2">
-      <h2>Detection probability vs tumour fraction (current settings)</h2>
+      <h2><span class="term" data-tip-title="Detection probability curve" data-tip="The chance the assay calls the sample positive, plotted against how much tumour DNA is present (in ppm tumour fraction). The dotted line marks the 95% detection level that defines the LoD; the green ✕ is the LoD itself.">Detection probability</span> vs tumour fraction (current settings)</h2>
       <div id="curve" class="plot"></div>
       <div class="sub" id="mcNote" style="margin-top:6px"></div>
     </div>
 
     <div class="panel span2">
-      <h2>LoD surface — panel size × input mass</h2>
+      <h2><span class="term" data-tip-title="LoD surface" data-tip="A map of the achievable detection limit across every combination of panel size (left–right) and cfDNA input (bottom–top). The red line is your target; the white cross marks your current setting. Any design on the darker side of the red line reaches your goal.">LoD surface</span> — panel size × input mass</h2>
       <div id="surface" class="plot" style="height:380px"></div>
       <div class="sub">Analytic-valid regime: depth dispersion and site dropout are not modelled here.</div>
     </div>
 
     <div class="panel span2">
-      <h2>Interpretation</h2>
+      <h2><span class="term" data-tip-title="Interpretation" data-tip="A plain-language summary of the current design: the achievable LoD, whether it meets the target, and which limit (too few molecules, or too much background) is holding it back.">Interpretation</span></h2>
       <div class="interp" id="interp"></div>
     </div>
 
     <div class="panel span2" id="wwitPanel">
-      <h2>What would it take?</h2>
+      <h2><span class="term" data-tip-title="What would it take?" data-tip="When the design misses the target, this lists the smallest single change to each lever — panel size, cfDNA input, conversion efficiency, or error regime — that would reach it, holding everything else fixed. It also flags which changes are physically plausible.">What would it take?</span></h2>
       <div id="wwit"></div>
     </div>
 
     <div class="panel span2" id="powerPanel" style="display:none">
-      <h2>Experimental design — replicates per dilution level</h2>
+      <h2><span class="term" data-tip-title="Replicates per dilution level" data-tip="For a real validation study: how many repeat measurements at each dilution you would need to pin the detection limit down to a given precision. The confidence interval narrows roughly as 1 ÷ √(replicates).">Experimental design</span> — replicates per dilution level</h2>
       <div class="interp" id="powerBody"></div>
     </div>
   </div>
@@ -690,8 +705,35 @@ document.querySelectorAll('#regime button').forEach(b=>b.onclick=()=>{
   setRegimeButtons(); markCustom(); syncInputs(); schedule();
 });
 
+// ---- hover glossary tooltips -------------------------------------------
+// A single floating box, appended to <body> so it is never clipped by a panel.
+const _tip=document.createElement('div'); _tip.id='tip'; document.body.appendChild(_tip);
+function _showTip(el){
+  _tip.innerHTML='';
+  const title=document.createElement('div'); title.className='tip-title';
+  title.textContent=el.dataset.tipTitle || el.textContent.trim();
+  const body=document.createElement('div'); body.textContent=el.getAttribute('data-tip');
+  _tip.append(title, body);
+  _tip.style.opacity='1'; _tip.style.left='0px'; _tip.style.top='0px';  // measure
+  const r=el.getBoundingClientRect(), tw=_tip.offsetWidth, th=_tip.offsetHeight;
+  let left=Math.max(8, Math.min(r.left+r.width/2-tw/2, innerWidth-tw-8));
+  let top=r.top-th-8; if(top<8) top=r.bottom+8;
+  _tip.style.left=left+'px'; _tip.style.top=top+'px';
+}
+function _hideTip(){ _tip.style.opacity='0'; }
+function initTooltips(){
+  document.querySelectorAll('[data-tip]').forEach(el=>{
+    el.tabIndex = el.tabIndex<0 ? 0 : el.tabIndex;  // keyboard-focusable
+    el.addEventListener('mouseenter',()=>_showTip(el));
+    el.addEventListener('mouseleave',_hideTip);
+    el.addEventListener('focus',()=>_showTip(el));
+    el.addEventListener('blur',_hideTip);
+  });
+}
+
 populatePresets();
 hashToState();
+initTooltips();
 syncInputs(); render();
 </script>
 </body>

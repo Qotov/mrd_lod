@@ -71,6 +71,15 @@ def test_rendered_units_and_labels(tmp_path) -> None:
     # Strand recovery is now an exposed control coupled to the regime.
     assert 'id="strand"' in html
     assert "regime_strand" in html
+    # Hover glossary: every key term carries a plain-language explanation.
+    assert "initTooltips" in html
+    for term in (
+        "cfDNA input", "Conversion efficiency", "Panel size (N)",
+        "SSCS — single-strand consensus", "Duplex consensus", "Strand recovery",
+        "Target specificity", "Detection rule", "Tumour fraction (TF)",
+        "Effective genome equivalents",
+    ):
+        assert f'data-tip-title="{term}"' in html, term
 
 
 def test_payload_mc_settings_and_extras(tmp_path) -> None:
