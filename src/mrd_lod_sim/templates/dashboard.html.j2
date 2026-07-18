@@ -217,56 +217,78 @@ const M = {
     for(let i=1;i<9;i++) a+=c[i]/(x+i);
     return 0.5*Math.log(2*Math.PI)+(x+0.5)*Math.log(t)-t+Math.log(a);
   },
-  erf(x){ const s=x<0?-1:1; x=Math.abs(x);
-    const t=1/(1+0.3275911*x);
-    const y=1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-x*x);
-    return s*y; },
-  normCdf(z){ return 0.5*(1+this.erf(z/Math.SQRT2)); },
-  poissonLogPmf(k,lam){ return k*Math.log(lam)-lam-this.lgamma(k+1); },
-  poissonCdf(k,lam){ // P(X<=k)
-    k=Math.floor(k);
-    if(lam<=0) return 1.0;
-    if(k<0) return 0.0;
-    if(lam>1000) return this.normCdf((k+0.5-lam)/Math.sqrt(lam));
-    let s=0; for(let i=0;i<=k;i++) s+=Math.exp(this.poissonLogPmf(i,lam));
-    return Math.min(1,s);
+  // Inverse standard normal (Acklam) -- used to jump-start the threshold search.
+  normPpf(p){
+    const a=[-3.969683028665376e+01,2.209460984245205e+02,-2.759285104469687e+02,
+      1.383577518672690e+02,-3.066479806614716e+01,2.506628277459239e+00];
+    const b=[-5.447609879822406e+01,1.615858368580409e+02,-1.556989798598866e+02,
+      6.680131188771972e+01,-1.328068155288572e+01];
+    const c=[-7.784894002430293e-03,-3.223964580411365e-01,-2.400758277161838e+00,
+      -2.549732539343734e+00,4.374664141464968e+00,2.938163982698783e+00];
+    const d=[7.784695709041462e-03,3.224671290700398e-01,2.445134137142996e+00,3.754408661907416e+00];
+    const pl=0.02425;
+    if(p<pl){ const q=Math.sqrt(-2*Math.log(p));
+      return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); }
+    if(p<=1-pl){ const q=p-0.5, r=q*q;
+      return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q/(((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1); }
+    const q=Math.sqrt(-2*Math.log(1-p));
+    return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
   },
-  poissonSfGe(t,lam){ return 1-this.poissonCdf(t-1,lam); }, // P(X>=t)
+  // Regularised lower incomplete gamma P(a,x) (Numerical Recipes): O(tens),
+  // stable for large x -- this is what makes the whole dashboard fast.
+  gser(a,x){ if(x<=0) return 0; let ap=a,sum=1/a,del=1/a;
+    for(let n=0;n<400;n++){ ap++; del*=x/ap; sum+=del; if(Math.abs(del)<Math.abs(sum)*1e-15) break; }
+    return sum*Math.exp(-x+a*Math.log(x)-this.lgamma(a)); },
+  gcf(a,x){ const F=1e-300; let b=x+1-a,c=1/F,d=1/b,h=d;
+    for(let i=1;i<400;i++){ const an=-i*(i-a); b+=2; d=an*d+b; if(Math.abs(d)<F)d=F;
+      c=b+an/c; if(Math.abs(c)<F)c=F; d=1/d; const del=d*c; h*=del; if(Math.abs(del-1)<1e-15) break; }
+    return Math.exp(-x+a*Math.log(x)-this.lgamma(a))*h; },
+  gammp(a,x){ if(x<=0||a<=0) return 0; return x<a+1 ? this.gser(a,x) : 1-this.gcf(a,x); },
+  // Regularised incomplete beta I_x(a,b) (Numerical Recipes) for binomial tails.
+  betacf(a,b,x){ const F=1e-300; let qab=a+b,qap=a+1,qam=a-1,c=1,d=1-qab*x/qap;
+    if(Math.abs(d)<F)d=F; d=1/d; let h=d;
+    for(let m=1;m<400;m++){ const m2=2*m;
+      let aa=m*(b-m)*x/((qam+m2)*(a+m2)); d=1+aa*d; if(Math.abs(d)<F)d=F; c=1+aa/c; if(Math.abs(c)<F)c=F;
+      d=1/d; h*=d*c; aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2)); d=1+aa*d; if(Math.abs(d)<F)d=F;
+      c=1+aa/c; if(Math.abs(c)<F)c=F; d=1/d; const del=d*c; h*=del; if(Math.abs(del-1)<1e-14) break; }
+    return h; },
+  betai(a,b,x){ if(x<=0) return 0; if(x>=1) return 1;
+    const bt=Math.exp(this.lgamma(a+b)-this.lgamma(a)-this.lgamma(b)+a*Math.log(x)+b*Math.log1p(-x));
+    return x<(a+1)/(a+b+2) ? bt*this.betacf(a,b,x)/a : 1-bt*this.betacf(b,a,1-x)/b; },
+  // P(X>=t) for X~Poisson(lam)  ==  regularised lower incomplete gamma P(t,lam).
+  poissonSfGe(t,lam){ if(t<=0) return 1; if(lam<=0) return 0; return this.gammp(t,lam); },
+  poissonCdf(k,lam){ k=Math.floor(k); if(k<0) return 0; if(lam<=0) return 1; return 1-this.gammp(k+1,lam); },
+  // P(K>=k) for K~Binomial(n,p)  ==  regularised incomplete beta I_p(k, n-k+1).
+  binomSfGe(k,n,p){ k=Math.ceil(k); if(k<=0) return 1; if(k>n) return 0;
+    if(p<=0) return 0; if(p>=1) return 1; return this.betai(k, n-k+1, p); },
+  // Smallest count t with P(X>=t | Poisson(lamBg)) <= alpha. Jump-start near the
+  // upper quantile via the normal approximation, then adjust by a few steps.
   countThreshold(lamBg,alpha){
-    let t=1; const cap=Math.ceil(lamBg*10+2000);
-    while(this.poissonSfGe(t,lamBg)>alpha && t<cap) t++;
+    if(lamBg<=0) return 1;
+    let t=Math.max(1, Math.floor(lamBg + this.normPpf(1-alpha)*Math.sqrt(lamBg)));
+    while(t>1 && this.poissonSfGe(t-1,lamBg)<=alpha) t--;
+    while(this.poissonSfGe(t,lamBg)>alpha) t++;
     return t;
   },
-  binomSfGe(k,n,p){ // P(K>=k)
-    if(k<=0) return 1; if(p<=0) return 0; if(p>=1) return 1;
-    if(n*p>1000) return 1-this.normCdf((k-0.5-n*p)/Math.sqrt(n*p*(1-p)));
-    const lp=Math.log(p), lq=Math.log1p(-p), lgn=this.lgamma(n+1);
-    let s=0;
-    for(let i=Math.ceil(k);i<=n;i++){
-      s+=Math.exp(lgn-this.lgamma(i+1)-this.lgamma(n-i+1)+i*lp+(n-i)*lq);
-      if(i>n*p && this.lgamma(n+1)!==Infinity && Math.exp(lgn-this.lgamma(i+1)-this.lgamma(n-i+1)+i*lp+(n-i)*lq)<1e-15 && i>n*p+10) break;
-    }
-    return Math.min(1,s);
-  },
   geEff(s){ return s.input_ng/s.pg * s.conv * s.strand; },
-  aggregate(s,vaf){
-    const ge=this.geEff(s), lamBg=ge*s.n*s.eps, lamSig=ge*s.n*vaf*s.e_ccf;
-    const t=this.countThreshold(lamBg,s.alpha);
-    return this.poissonSfGe(t,lamBg+lamSig);
-  },
-  kofn(s,vaf){
-    const ge=this.geEff(s), lamB=ge*s.eps, lamS=ge*vaf*s.e_ccf;
-    const t=this.countThreshold(lamB,s.per_site_alpha);
-    const pSite=this.poissonSfGe(t,lamB+lamS);
-    return this.binomSfGe(s.k,s.n,pSite);
-  },
-  detect(s,vaf){ return s.rule==='kofn' ? this.kofn(s,vaf) : this.aggregate(s,vaf); },
+  // Prepared context: the threshold depends only on the background (not VAF),
+  // so compute it once and reuse it across a whole VAF sweep / bisection.
+  prepAgg(s){ const ge=this.geEff(s), lamBg=ge*s.n*s.eps;
+    return {ge,lamBg,t:this.countThreshold(lamBg,s.alpha)}; },
+  aggP(c,s,vaf){ return this.poissonSfGe(c.t, c.lamBg + c.ge*s.n*vaf*s.e_ccf); },
+  prepKofn(s){ const ge=this.geEff(s), lamB=ge*s.eps;
+    return {ge,lamB,t:this.countThreshold(lamB,s.per_site_alpha)}; },
+  kofnP(c,s,vaf){ return this.binomSfGe(s.k, s.n, this.poissonSfGe(c.t, c.lamB + c.ge*vaf*s.e_ccf)); },
+  prep(s){ return s.rule==='kofn' ? {kofn:true,c:this.prepKofn(s)} : {kofn:false,c:this.prepAgg(s)}; },
+  detectWith(p,s,vaf){ return p.kofn ? this.kofnP(p.c,s,vaf) : this.aggP(p.c,s,vaf); },
+  aggregate(s,vaf){ return this.aggP(this.prepAgg(s),s,vaf); },
+  detect(s,vaf){ return this.detectWith(this.prep(s),s,vaf); },
   achievableLod(s,hit){
-    let lo=1e-9, hi=0.5;
-    if(this.detect(s,hi)<hit) return Infinity;
-    if(this.detect(s,lo)>=hit) return lo;
-    for(let i=0;i<80;i++){ const mid=Math.sqrt(lo*hi);
-      if(this.detect(s,mid)>=hit) hi=mid; else lo=mid; }
+    const p=this.prep(s); let lo=1e-9, hi=0.5;
+    if(this.detectWith(p,s,hi)<hit) return Infinity;
+    if(this.detectWith(p,s,lo)>=hit) return lo;
+    for(let i=0;i<60;i++){ const mid=Math.sqrt(lo*hi);
+      if(this.detectWith(p,s,mid)>=hit) hi=mid; else lo=mid; }
     return hi;
   }
 };
@@ -375,7 +397,8 @@ function drawCurve(s,lodVaf,hit){
   const xs=[], ys=[];
   const centre = isFinite(lodVaf)? lodVaf : tfToVaf(state.targetTF);
   const lo=Math.log10(centre/60), hi=Math.log10(centre*60);
-  for(let i=0;i<=60;i++){ const v=Math.pow(10,lo+(hi-lo)*i/60); xs.push(v); ys.push(M.detect(s,v)); }
+  const p=M.prep(s);  // threshold computed once, reused across the sweep
+  for(let i=0;i<=60;i++){ const v=Math.pow(10,lo+(hi-lo)*i/60); xs.push(v); ys.push(M.detectWith(p,s,v)); }
   const mc=PAYLOAD.mc_curve;
   const traces=[
     {x:xs,y:ys,mode:'lines',name:'analytic',line:{color:'#2f6df0',width:2.5}},
@@ -394,9 +417,17 @@ function drawCurve(s,lodVaf,hit){
   },{displayModeBar:false,responsive:true});
 }
 
-function drawSurface(s,hit){
-  const NS=[], MS=[], Z=[];
-  const nGrid=[], mGrid=[];
+// The surface grid depends only on conversion, error, rule and specificity --
+// NOT on input mass or panel size (those only move the crosshair). Cache Z and
+// recompute it only when a dependency changes, so dragging the input/panel
+// sliders is instant. The recompute itself is debounced off the frame loop so
+// that even the conversion/error sliders stay responsive while the grid catches
+// up (the crosshair and every other panel update immediately from cached Z).
+let _surf={sig:null,z:null,nGrid:null,mGrid:null};
+let _surfTimer=null;
+function surfaceSig(s,hit){ return [s.conv,s.eps,s.rule,s.alpha,s.k,s.per_site_alpha,hit].join('|'); }
+function computeSurfaceZ(s,hit,sig){
+  const nGrid=[], mGrid=[], Z=[];
   for(let i=0;i<16;i++) nGrid.push(Math.round(Math.pow(10,1+(3.699-1)*i/15)));
   for(let j=0;j<16;j++) mGrid.push(5+(100-5)*j/15);
   for(const m of mGrid){ const row=[];
@@ -404,6 +435,11 @@ function drawSurface(s,hit){
       const lod=M.achievableLod(ss,hit);
       row.push(isFinite(lod)? Math.log10(vafToTf(lod)) : null); }
     Z.push(row); }
+  _surf={sig,z:Z,nGrid,mGrid};
+}
+function plotSurface(){
+  if(!_surf.z) return;
+  const Z=_surf.z, nGrid=_surf.nGrid, mGrid=_surf.mGrid;
   Plotly.react('surface',[{
     z:Z,x:nGrid,y:mGrid,type:'contour',colorscale:'Viridis',
     colorbar:{title:'log₁₀ TF LoD',titleside:'right'},
@@ -421,6 +457,16 @@ function drawSurface(s,hit){
     font:{color:getCss('--ink')}, showlegend:false,
     xaxis:{type:'log',title:'panel size (N)'}, yaxis:{title:'cfDNA input (ng)'}
   },{displayModeBar:false,responsive:true});
+}
+function drawSurface(s,hit){
+  const sig=surfaceSig(s,hit);
+  if(!_surf.z){ computeSurfaceZ(s,hit,sig); plotSurface(); return; }  // first paint
+  plotSurface();                                                     // crosshair/contour now
+  if(_surf.sig!==sig){                                               // grid stale -> debounce
+    const ss=Object.assign({},s);
+    if(_surfTimer) clearTimeout(_surfTimer);
+    _surfTimer=setTimeout(()=>{ computeSurfaceZ(ss,hit,sig); plotSurface(); }, 90);
+  }
 }
 
 function drawInterp(s,lodTF,pass,mut,bg){
