@@ -4,7 +4,7 @@
 [molecules]
 input_ng = 30.0              # cfDNA input mass
 conversion_efficiency = 0.4  # usable consensus families / input molecules (0.2-0.6 typical)
-strand_recovery = 1.0        # 1.0 single-strand consensus; ~0.5 for duplex
+strand_recovery = 0.8        # ~0.8 linked duplex (CODEC-type); 1.0 single-strand; ~0.5 conventional duplex
 
 [panel]
 n_variants = 500             # tracked variants (N)
@@ -15,7 +15,7 @@ dropout_prob = 0.0
 
 [error]
 model = "preset"
-regime = "SSCS"              # RAW ~1e-3 | SSCS ~1e-5 | DUPLEX ~1e-7
+regime = "LINKED_DUPLEX"     # RAW ~1e-3 | SSCS ~1e-5 | DUPLEX ~1e-7 | LINKED_DUPLEX ~1e-7 (higher retention)
 sigma = 0.0
 
 [detection]

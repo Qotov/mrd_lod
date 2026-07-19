@@ -39,10 +39,10 @@ CDN — see *Offline use* below). Scenarios are plain TOML in `configs/` — edi
 `target` — no code required. The dashboard also exposes the example scenarios as a one-click preset
 dropdown, so you don't have to touch TOML at all.
 
-> **The default scenario deliberately misses its own target.** It ships as single-strand consensus
-> (SSCS) at 10 ppm TF so the diagnostic path — the red *misses target* state and the "what would it
-> take?" lever analysis — is visible on load. Switch the error regime to **Duplex** (or pick the
-> `optimistic` preset) to see a passing configuration.
+> **The default scenario opens on the recommended chemistry** — linked duplex (CODEC-type) at a
+> 10 ppm TF target — so it loads on a passing (green) configuration. To see the diagnostic path (the
+> red *misses target* state and the "what would it take?" lever analysis), switch the error regime to
+> **SSCS** or **conventional Duplex**.
 
 ## Hero figure
 
