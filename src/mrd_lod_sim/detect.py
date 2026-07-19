@@ -13,13 +13,12 @@ otherwise it falls back to ``error_model.mean_rate()`` broadcast across sites
 (the prior path). The ``error_model`` argument is thus both the prior and the
 provider of the analytic expectation.
 
-Three rules are implemented and comparing them is a first-class feature:
+Two rules are implemented and comparing them is a first-class feature:
 
 - :class:`KofNRule`          -- Signatera-style; intuitive, statistically
   inefficient; does **not** estimate a VAF (``estimated_vaf`` stays ``None``,
   per BUILD_SPEC 3).
 - :class:`AggregatePoissonRule` -- efficient, closed form (BUILD_SPEC 4.2).
-- :class:`LikelihoodRatioRule`  -- most efficient; the reference implementation.
 
 Every rule can operate at a **calibrated threshold** on its ``statistic``
 (higher = more evidence for MRD) derived from blanks (BUILD_SPEC 5), rather than
@@ -32,7 +31,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import numpy as np
-from scipy import optimize
 from scipy.stats import binom, chi2, poisson
 
 from mrd_lod_sim.errors import ErrorModel
@@ -43,7 +41,6 @@ __all__ = [
     "DetectionRule",
     "KofNRule",
     "AggregatePoissonRule",
-    "LikelihoodRatioRule",
 ]
 
 
@@ -237,85 +234,6 @@ class AggregatePoissonRule(DetectionRule):
         return MRDCall(
             detected=bool(detected),
             statistic=total_mutant,
-            p_value=p_value,
-            estimated_vaf=vaf_hat,
-            estimated_ci=ci,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class LikelihoodRatioRule(DetectionRule):
-    """Likelihood-ratio rule (BUILD_SPEC 3) -- the reference implementation.
-
-    Compares H0 (background only) against H1 (background + tumour at the MLE
-    per-site VAF) using per-site error rates. Most statistically efficient.
-
-    The statistic is the LR ``2*(logL(vaf_hat) - logL(0))`` (>= 0, higher = more
-    evidence). Its null distribution is a 50:50 mixture of a point mass at 0 and
-    chi-squared_1 (the boundary case, Self & Liang 1987), so
-    ``p = 0.5 * chi2_1.sf(statistic)``.
-
-    Attributes:
-        alpha: nominal significance level.
-        vaf_max: upper bound for the MLE search.
-        decision_threshold: optional calibrated threshold on the LR statistic.
-    """
-
-    alpha: float = 0.05
-    vaf_max: float = 1.0
-    decision_threshold: float | None = None
-
-    def __post_init__(self) -> None:
-        if not 0.0 < self.alpha < 1.0:
-            raise ValueError("alpha must be in (0, 1)")
-
-    @staticmethod
-    def _loglik(vaf: float, mutant: np.ndarray, total: np.ndarray, eps: np.ndarray) -> float:
-        lam = total * (eps + vaf)
-        lam = np.maximum(lam, 1e-300)
-        return float(np.sum(mutant * np.log(lam) - lam))  # drop constant log(k!)
-
-    def _mle_vaf(
-        self, mutant: np.ndarray, total: np.ndarray, eps: np.ndarray
-    ) -> float:
-        # Score at vaf=0: sum(mutant/eps) - sum(total). If <= 0, MLE is at 0.
-        with np.errstate(divide="ignore"):
-            score0 = float(np.sum(np.divide(mutant, eps, out=np.zeros_like(mutant), where=eps > 0)) - np.sum(total))
-        if score0 <= 0:
-            return 0.0
-        res = optimize.minimize_scalar(
-            lambda v: -self._loglik(v, mutant, total, eps),
-            bounds=(0.0, self.vaf_max),
-            method="bounded",
-        )
-        return float(res.x)
-
-    def call(
-        self, observations: SiteObservations, error_model: ErrorModel
-    ) -> MRDCall:
-        mutant = observations.mutant_counts
-        total = observations.total_counts
-        eps = self._site_rates(observations, error_model)
-        vaf_hat = self._mle_vaf(mutant, total, eps)
-        ll1 = self._loglik(vaf_hat, mutant, total, eps)
-        ll0 = self._loglik(0.0, mutant, total, eps)
-        lr = max(0.0, 2.0 * (ll1 - ll0))
-        # 50:50 chi2_0 / chi2_1 mixture at the boundary.
-        p_value = float(0.5 * chi2.sf(lr, df=1)) if lr > 0 else 1.0
-        if self.decision_threshold is not None:
-            detected = lr >= self.decision_threshold
-        else:
-            detected = p_value <= self.alpha
-        # Wald CI from observed Fisher information at the MLE.
-        ci: tuple[float, float] | None = None
-        if vaf_hat > 0:
-            info = float(np.sum(mutant / np.maximum(eps + vaf_hat, 1e-300) ** 2))
-            if info > 0:
-                se = info**-0.5
-                ci = (max(0.0, vaf_hat - 1.96 * se), vaf_hat + 1.96 * se)
-        return MRDCall(
-            detected=bool(detected),
-            statistic=lr,
             p_value=p_value,
             estimated_vaf=vaf_hat,
             estimated_ci=ci,

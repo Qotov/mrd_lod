@@ -19,7 +19,7 @@ regime = "DUPLEX"             # ~1e-7 per-base error
 sigma = 0.0
 
 [detection]
-rule = "lr"                   # most efficient rule
+rule = "aggregate"            # aggregate | kofn
 alpha = 0.05
 
 [target]

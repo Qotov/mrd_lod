@@ -97,10 +97,10 @@ For the aggregate rule the sum of independent Poissons is Poisson:
 P(detect) = 1 − PoissonCDF(threshold − 1, λ_signal + λ_bg)
 ```
 
-The k-of-N rule has an exact form too (per-site Poisson tail → `Binomial(N, p)`); the likelihood-ratio
-rule has no closed form and is served, where a fast path is required, by the labelled aggregate-Poisson
-proxy. The Monte Carlo and analytic paths agree within Monte Carlo error in the analytic-valid regime —
-this is the headline test that validates both implementations.
+The k-of-N rule has an exact form too (per-site Poisson tail → `Binomial(N, p)`). The Monte Carlo and
+analytic paths agree within Monte Carlo error in the analytic-valid regime — this is the headline test
+that validates both implementations. (The two detection rules are the aggregate-Poisson and k-of-N
+rules.)
 
 ### Error regimes (order-of-magnitude priors)
 

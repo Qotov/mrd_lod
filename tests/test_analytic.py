@@ -1,8 +1,7 @@
 """Tests for the analytic fast path (BUILD_SPEC 4.2).
 
 The MC-vs-analytic agreement (the headline test) lives in test_agreement.py;
-here we cover the closed forms in isolation, the regime guard, monotonicity, and
-the LR aggregate-proxy dispatch.
+here we cover the closed forms in isolation, the regime guard, and monotonicity.
 """
 
 from __future__ import annotations
@@ -13,13 +12,11 @@ from mrd_lod_sim.analytic import (
     AnalyticRegimeError,
     count_threshold,
     detection_probability,
-    uses_aggregate_proxy,
 )
 from mrd_lod_sim.config import AssayConfig
 from mrd_lod_sim.detect import (
     AggregatePoissonRule,
     KofNRule,
-    LikelihoodRatioRule,
 )
 from mrd_lod_sim.errors import ConstantError
 from mrd_lod_sim.panel import PanelModel
@@ -85,18 +82,6 @@ def test_kofn_probability_monotone() -> None:
     rule = KofNRule(k=2, per_site_alpha=0.01)
     ps = [detection_probability(cfg(), rule, v) for v in (1e-6, 1e-5, 1e-4)]
     assert ps[0] <= ps[1] <= ps[2]
-
-
-def test_lr_uses_aggregate_proxy() -> None:
-    lr = LikelihoodRatioRule(alpha=0.05)
-    agg = AggregatePoissonRule(alpha=0.05)
-    assert uses_aggregate_proxy(lr)
-    assert not uses_aggregate_proxy(agg)
-    # Proxy => identical curve to the aggregate rule at matched alpha.
-    for vaf in (1e-6, 1e-5, 1e-4):
-        assert detection_probability(cfg(), lr, vaf) == pytest.approx(
-            detection_probability(cfg(), agg, vaf)
-        )
 
 
 def test_regime_guard_raises_on_dropout() -> None:

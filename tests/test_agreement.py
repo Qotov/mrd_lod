@@ -22,7 +22,6 @@ from mrd_lod_sim.config import AssayConfig
 from mrd_lod_sim.detect import (
     AggregatePoissonRule,
     KofNRule,
-    LikelihoodRatioRule,
     SiteObservations,
 )
 from mrd_lod_sim.errors import ConstantError
@@ -81,13 +80,3 @@ def test_determinism() -> None:
     a = detection_rate(config, rule, 5e-6, 5000, np.random.default_rng(99)).detection_rate
     b = detection_rate(config, rule, 5e-6, 5000, np.random.default_rng(99)).detection_rate
     assert a == b
-
-
-def test_lr_tracks_aggregate_at_ppm() -> None:
-    # BUILD_SPEC 10, test 10: justifies the LR aggregate proxy in surface/dashboard.
-    config = cfg()
-    rng = np.random.default_rng(2024)
-    for vaf in (2e-6, 5e-6, 1e-5):
-        lr = detection_rate(config, LikelihoodRatioRule(alpha=0.05), vaf, 3000, rng)
-        agg = detection_rate(config, AggregatePoissonRule(alpha=0.05), vaf, 3000, rng)
-        assert abs(lr.detection_rate - agg.detection_rate) < 0.08

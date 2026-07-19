@@ -36,7 +36,7 @@ from mrd_lod_sim.validate import (
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 #: Map detection-rule class name -> the dashboard's rule key.
-_RULE_KEY = {"KofNRule": "kofn", "LikelihoodRatioRule": "lr"}
+_RULE_KEY = {"KofNRule": "kofn"}
 
 
 def _rule_key(rule) -> str:
@@ -81,12 +81,10 @@ def _ui_rule(rule, alpha_ui: float):
     specificity control (alpha = 1 - specificity), not the rule object's own
     alpha. k-of-N ignores alpha, so it is returned unchanged.
     """
-    from mrd_lod_sim.detect import AggregatePoissonRule, LikelihoodRatioRule
+    from mrd_lod_sim.detect import AggregatePoissonRule
 
     if isinstance(rule, AggregatePoissonRule):
         return AggregatePoissonRule(alpha=alpha_ui)
-    if isinstance(rule, LikelihoodRatioRule):
-        return LikelihoodRatioRule(alpha=alpha_ui)
     return rule
 
 
@@ -216,7 +214,6 @@ def build_payload(scenario: Scenario, presets: list[Scenario] | None = None) -> 
         "meta": {
             "name": scenario.name,
             "rule": rule_name,
-            "uses_aggregate_proxy": rule_name == "LikelihoodRatioRule",
         },
         "current": {
             "input_ng": cfg.molecules.input_ng,

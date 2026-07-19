@@ -14,13 +14,12 @@ import pytest
 from mrd_lod_sim.detect import (
     AggregatePoissonRule,
     KofNRule,
-    LikelihoodRatioRule,
     MRDCall,
     SiteObservations,
 )
 from mrd_lod_sim.errors import ConstantError
 
-RULES = [KofNRule(k=2, per_site_alpha=0.01), AggregatePoissonRule(alpha=0.05), LikelihoodRatioRule(alpha=0.05)]
+RULES = [KofNRule(k=2, per_site_alpha=0.01), AggregatePoissonRule(alpha=0.05)]
 
 
 def blank_obs(n: int = 500, depth: float = 3000.0) -> SiteObservations:
@@ -57,11 +56,10 @@ def test_kofn_does_not_estimate_vaf() -> None:
     assert call.n_positive_sites is not None
 
 
-def test_aggregate_and_lr_estimate_vaf() -> None:
-    for rule in (AggregatePoissonRule(), LikelihoodRatioRule()):
-        call = rule.call(signal_obs(), ConstantError(1e-5))
-        assert call.estimated_vaf is not None
-        assert call.estimated_vaf > 0
+def test_aggregate_estimates_vaf() -> None:
+    call = AggregatePoissonRule().call(signal_obs(), ConstantError(1e-5))
+    assert call.estimated_vaf is not None
+    assert call.estimated_vaf > 0
 
 
 def test_aggregate_vaf_estimate_is_reasonable() -> None:
@@ -72,12 +70,6 @@ def test_aggregate_vaf_estimate_is_reasonable() -> None:
     assert call.estimated_vaf == pytest.approx((100 - 15) / 1.5e6, rel=0.02)
     lo, hi = call.estimated_ci
     assert lo <= call.estimated_vaf <= hi
-
-
-def test_lr_vaf_estimate_is_reasonable() -> None:
-    call = LikelihoodRatioRule().call(signal_obs(), ConstantError(1e-5))
-    # LR estimates per-site VAF, likewise net of background.
-    assert call.estimated_vaf == pytest.approx((100 - 15) / 1.5e6, rel=0.10)
 
 
 def test_uses_per_site_error_rates_when_present() -> None:

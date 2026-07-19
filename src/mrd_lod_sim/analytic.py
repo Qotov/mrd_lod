@@ -3,16 +3,13 @@
 Detection probability in microseconds instead of seconds, making the LoD surface
 (BUILD_SPEC 7) and live dashboard (BUILD_SPEC 8) tractable.
 
-One entry point, :func:`detection_probability`, dispatches by rule
-(BUILD_SPEC 3, analytic-availability table):
+One entry point, :func:`detection_probability`, dispatches by rule:
 
 - ``AggregatePoissonRule`` -- exact: the sum of independent Poissons is Poisson.
 - ``KofNRule`` -- exact under panel-expectation inputs: per-site hit probability
   is a Poisson tail; the sample is positive with probability ``P(K >= k)`` for
   ``K ~ Binomial(N, p)`` (the homogeneous reduction of the exact Poisson
   binomial).
-- ``LikelihoodRatioRule`` -- no closed form; served by the labelled
-  aggregate-Poisson **proxy** (never presented as the LR rule silently).
 
 All inputs come from ``mean_rate()`` and panel expectations -- never a median or
 a per-replicate draw. The closed forms represent only a restricted model, so the
@@ -30,14 +27,12 @@ from mrd_lod_sim.detect import (
     AggregatePoissonRule,
     DetectionRule,
     KofNRule,
-    LikelihoodRatioRule,
 )
 
 __all__ = [
     "detection_probability",
     "AnalyticRegimeError",
     "count_threshold",
-    "uses_aggregate_proxy",
 ]
 
 
@@ -72,11 +67,6 @@ def count_threshold(lam_bg: float, alpha: float) -> int:
     while poisson.sf(t - 1, lam_bg) > alpha:
         t += 1
     return t
-
-
-def uses_aggregate_proxy(rule: DetectionRule) -> bool:
-    """Whether the analytic path serves ``rule`` via the aggregate proxy (LR)."""
-    return isinstance(rule, LikelihoodRatioRule)
 
 
 def _aggregate_detection_probability(
@@ -126,10 +116,4 @@ def detection_probability(
         )
     if isinstance(rule, KofNRule):
         return _kofn_detection_probability(ge_eff, n, e_ccf, mean_eps, vaf, rule)
-    if isinstance(rule, LikelihoodRatioRule):
-        # Labelled aggregate-Poisson proxy (BUILD_SPEC 3): the LR rule is the
-        # most efficient and the aggregate sits just below it at ppm scale.
-        return _aggregate_detection_probability(
-            ge_eff, n, e_ccf, mean_eps, vaf, rule.alpha, rule.decision_threshold
-        )
     raise TypeError(f"no analytic path for rule type {type(rule).__name__}")

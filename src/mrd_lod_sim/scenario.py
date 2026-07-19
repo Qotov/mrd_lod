@@ -25,7 +25,7 @@ so a non-programmer can edit whole design scenarios in a TOML file. TOML schema
     # median = 1e-5       # for model = "lognormal"
 
     [detection]
-    rule = "aggregate"    # "aggregate" | "kofn" | "lr"
+    rule = "aggregate"    # "aggregate" | "kofn"
     alpha = 0.05
     k = 2
     per_site_alpha = 0.01
@@ -47,7 +47,6 @@ from mrd_lod_sim.detect import (
     AggregatePoissonRule,
     DetectionRule,
     KofNRule,
-    LikelihoodRatioRule,
 )
 from mrd_lod_sim.errors import (
     ConstantError,
@@ -93,8 +92,6 @@ def build_rule(section: dict) -> DetectionRule:
             k=int(section.get("k", 2)),
             per_site_alpha=float(section.get("per_site_alpha", 0.01)),
         )
-    if rule == "lr":
-        return LikelihoodRatioRule(alpha=float(section.get("alpha", 0.05)))
     raise ValueError(f"unknown detection rule {rule!r}")
 
 
